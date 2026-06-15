@@ -42,13 +42,14 @@ class SearchUrls(Thread):
 
                 links = soup.find_all("a", href=lambda h: h and "/en/detail/" in h)
 
+                if not links:
+                     print(f"Page {page_num} — no links found, stopping")
+                     break  
                 with lock:                                        
                         for link in links:
                             href = link["href"]
                             if href not in self.all_urls:
                                 self.all_urls.add(href)
-                                print(href)
-
                 if len(self.all_urls) >= 10000:
                     break
 
@@ -61,21 +62,26 @@ class SearchUrls(Thread):
 
 def build_urls():
     urls = []
-    price_ranges = [(0, 100000),(100000, 200000),(200000, 300000),(300000, 400000),(400000, 500000),(500000, 600000),(600000, 700000),(700000, 800000),(800000, None) ]
-    property_types = {
-    "house": ["residence", "villa", "bungalow", "cottage","chalet","mansion","master-house"],
-    "apartment": ["apartment", "penthouse", "duplex", "studio","ground-floor","triplex"]}
+    provinces = [
+        "antwerp", "east-flanders", "west-flanders", "flemish-brabant", "limburg",  # Flanders
+        "hainaut", "liege", "luxembourg", "namur", "walloon-brabant",                # Wallonia
+        "brussels"                                                                    # Brussels
+    ]
+    price_ranges = [
+        (0, 100000), (100000, 200000), (200000, 300000), (300000, 400000),
+        (400000, 500000), (500000, 600000), (600000, 700000), (700000, 800000), (800000, None)
+    ]
 
-    for prop_type, subtypes in property_types.items():
-        for subtype in subtypes:
-            for min_price, max_price in price_ranges:
-                if max_price:
-                    url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale&propertytypes={prop_type}&propertysubtypes={subtype}&minprice={min_price}&maxprice={max_price}&noindex=1&page={{page_num}}"
-                else:
-                    url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale&propertytypes={prop_type}&propertysubtypes={subtype}&minprice={min_price}&noindex=1&page={{page_num}}"
-                urls.append(url)
+    for province in provinces:
+        for min_price, max_price in price_ranges:
+            if max_price:
+                url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&maxprice={max_price}&noindex=1&page={{page_num}}"
+            else:
+                url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&noindex=1&page={{page_num}}"
+            urls.append(url)
+
+    print(f"Total URL combinations: {len(urls)}") 
     return urls
-
 
 def run_scraper(max_concurrent=50):         
     session = SearchSession().session

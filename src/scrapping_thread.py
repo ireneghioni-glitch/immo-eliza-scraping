@@ -48,7 +48,7 @@ class SearchUrls(Thread):
                 print(f"Page {page_num} — collected {len(links)} URLs — Total: {len(self.all_urls)}")
             except Exception as e:
                 print(f"Page {page_num} failed: {e}")
-                
+
 
 
 def build_urls():
@@ -66,7 +66,7 @@ def build_urls():
     for province in provinces:
         for min_price, max_price in price_ranges:
             if max_price:
-                url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&maxprice={max_price}&noindex=1&page={{page_num}}"
+                url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale& ={province}&minprice={min_price}&maxprice={max_price}&noindex=1&page={{page_num}}"
             else:
                 url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&noindex=1&page={{page_num}}"
             urls.append(url)

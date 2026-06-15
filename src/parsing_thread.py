@@ -190,7 +190,7 @@ class PropertyParser:
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
 class PropertyScraper:
-    def __init__(self, output_file="properties.csv", max_concurrent=20):
+    def __init__(self, output_file="properties.csv", max_concurrent=50):
         self.output_file  = output_file
         self.max_concurrent = max_concurrent
         self.results      = []

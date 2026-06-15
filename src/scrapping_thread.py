@@ -3,8 +3,9 @@ import requests
 from bs4 import BeautifulSoup
 import csv
 import time
+from concurrent.futures import ThreadPoolExecutor
 
-all_urls = []
+all_urls = set()
 lock = RLock()
 
 with open("fetched_urls.csv", "w", newline="") as f:
@@ -42,13 +43,10 @@ class SearchUrls(Thread):
                 links = soup.find_all("a", href=lambda h: h and "/en/detail/" in h)
 
                 with lock:                                        
-                    with open("fetched_urls.csv", "a", newline="") as f:
-                        writer = csv.writer(f)
                         for link in links:
                             href = link["href"]
                             if href not in self.all_urls:
-                                self.all_urls.append(href)
-                                writer.writerow([href])
+                                self.all_urls.add(href)
                                 print(href)
 
                 if len(self.all_urls) >= 10000:
@@ -63,12 +61,10 @@ class SearchUrls(Thread):
 
 def build_urls():
     urls = []
-    price_ranges = [(0, 100000), (100000, 200000), (200000, 300000),
-                    (300000, 400000), (400000, 500000), (500000, None)]
+    price_ranges = [(0, 100000),(100000, 200000),(200000, 300000),(300000, 400000),(400000, 500000),(500000, 600000),(600000, 700000),(700000, 800000),(800000, None) ]
     property_types = {
-        "house": ["residence", "villa", "bungalow", "cottage"],
-        "apartment": ["apartment", "penthouse", "duplex", "studio"]
-    }
+    "house": ["residence", "villa", "bungalow", "cottage","chalet","mansion","master-house"],
+    "apartment": ["apartment", "penthouse", "duplex", "studio","ground-floor","triplex"]}
 
     for prop_type, subtypes in property_types.items():
         for subtype in subtypes:
@@ -86,16 +82,12 @@ def run_scraper(max_concurrent=50):
     semaphore = Semaphore(max_concurrent)  
     urls = build_urls()
 
-    threads = [
-        SearchUrls(url, session, all_urls, semaphore)
-        for url in urls
-    ]
+    def task(url):
+        worker = SearchUrls(url, session, all_urls,semaphore)
+        worker.search_url(url)
 
-    for t in threads:
-        t.start()
-
-    for t in threads:
-        t.join()                          
+    with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+         executor.map(task, urls)                          
 
     print(f"\nDone — {len(all_urls)} total URLs collected")
     return all_urls

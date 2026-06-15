@@ -59,7 +59,39 @@ def get_region(postal_code):
         return "Wallonia"
     else:
         return "Flanders"
-
+    
+#Get Province with postal_code
+def get_province(postal_code):
+    if postal_code is None:
+        return None
+    if 1000 <= postal_code < 1300:
+        return "Brussels Capital Region"
+    elif 1300 <= postal_code < 1500:
+        return "Walloon Brabant"
+    elif 1500 <= postal_code < 2000:
+        return "Flemish Brabant"
+    elif 2000 <= postal_code < 3000:
+        return "Antwerp"
+    elif 3000 <= postal_code < 3500:
+        return "Flemish Brabant"
+    elif 3500 <= postal_code < 4000:
+        return "Limburg"
+    elif 4000 <= postal_code < 5000:
+        return "Liège"
+    elif 5000 <= postal_code < 5690:
+        return "Namur"
+    elif 6000 <= postal_code < 6600:
+        return "Hainaut"
+    elif 6600 <= postal_code < 7000:
+        return "Luxembourg"
+    elif 7000 <= postal_code < 8000:
+        return "Hainaut"
+    elif 8000 <= postal_code < 9000:
+        return "West Flanders"
+    elif 9000 <= postal_code < 10000:
+        return "East Flanders"
+    else:
+        return None
 #Parser function
 def parse_property(url):
     # Force English
@@ -120,6 +152,11 @@ def parse_property(url):
 
     # Get Region
     data["region"] = get_region(data["postal_code"])
+    
+    #Get Province
+    data["province"] = get_province(data["postal_code"])
+    
+    
 
     # Fill missing columns with None
     all_cols = list(LABEL_MAP.values()) + ["epc_score", "region"]

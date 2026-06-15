@@ -1,17 +1,11 @@
 from threading import Thread, RLock, Semaphore
 import requests
 from bs4 import BeautifulSoup
-import csv
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 all_urls = set()
 lock = RLock()
-
-with open("fetched_urls.csv", "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["url"])
-
 
 class SearchSession:
     def __init__(self):
@@ -50,14 +44,11 @@ class SearchUrls(Thread):
                             href = link["href"]
                             if href not in self.all_urls:
                                 self.all_urls.add(href)
-                if len(self.all_urls) >= 10000:
-                    break
 
                 print(f"Page {page_num} — collected {len(links)} URLs — Total: {len(self.all_urls)}")
-                time.sleep(0.5)
-
             except Exception as e:
                 print(f"Page {page_num} failed: {e}")
+                
 
 
 def build_urls():

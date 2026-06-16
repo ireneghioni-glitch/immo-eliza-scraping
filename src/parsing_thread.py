@@ -6,16 +6,28 @@ from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 import csv
 from scrapping_thread import run_scraper
+import random
 
 # ── Constants ────────────────────────────────────────────────────────────────
-
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+]
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "User-Agent": random.choice(USER_AGENTS),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "fr-BE,fr;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Referer": "https://immovlan.be/",
     "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",       # ← browsers always send this
+    "Sec-Fetch-Dest": "document",           # ← tells server it's a page request
+    "Sec-Fetch-Mode": "navigate",           # ← mimics real navigation
+    "Sec-Fetch-Site": "same-origin",        # ← coming from same site
+    "Sec-Fetch-User": "?1",                 # ← triggered by user action
+    "Cache-Control": "max-age=0",           # ← browser cache behavior
 }
 
 LABEL_MAP = {

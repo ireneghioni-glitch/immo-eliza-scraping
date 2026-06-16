@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 all_urls = set()
 lock = RLock()
+ban_types=['investment-property','office-space','development-site','land','industrial-building','garage','parking','farmland','commercial-building','student-flat','undetermined-property','to-parcel-out-site','industrial-ground','green-zone','wood','recreational-land']
 
 class SearchSession:
     def __init__(self):
@@ -42,7 +43,7 @@ class SearchUrls(Thread):
                 with lock:                                        
                         for link in links:
                             href = link["href"]
-                            if href not in self.all_urls:
+                            if href not in self.all_urls and href.split('/')[5] not in ban_types:
                                 self.all_urls.add(href)
 
                 print(f"Page {page_num} — collected {len(links)} URLs — Total: {len(self.all_urls)}")

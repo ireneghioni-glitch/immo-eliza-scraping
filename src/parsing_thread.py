@@ -39,7 +39,7 @@ INT_COLS   = ["facades", "parking_count", "floors_total"]
 ALL_COLS = [
     "property_id", "property_type", "property_subtype", "price", "price_type",
     "living_area_m2", "bedrooms", "bathrooms", "address", "postal_code", "city",
-    "building_year", "epc_score", "region", "province",
+    "latitude","longitude","building_year", "epc_score", "region", "province",
 ] + list(LABEL_MAP.values())
 
 
@@ -160,6 +160,7 @@ class PropertyParser:
 
         property_block = blocks.get("House") or blocks.get("Apartment")
         action_block   = blocks.get("SellAction") or blocks.get("RentAction")
+        geo_block = blocks.get("GeoCoordinates")
 
         if not property_block or not action_block:
             print(f"Skipping — no JSON-LD found: {url}")
@@ -177,6 +178,8 @@ class PropertyParser:
             "address":          property_block.get("address", {}).get("streetAddress"),
             "postal_code":      Converters.to_int(url.split("/")[7]),
             "city":             url.split("/")[8],
+            "latitude":         geo_block.get("latitude"),
+            "longitude":        geo_block.get("longitude"),
             "building_year":    Converters.to_int(property_block.get("yearBuilt")),
         }
 

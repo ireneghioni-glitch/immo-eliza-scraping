@@ -111,6 +111,22 @@ class Geography:
 
 
 # ── Parser ────────────────────────────────────────────────────────────────────
+class DeadLetterQueue:
+    def __init__(self, file="failed_urls.txt"):
+        self.file = file
+        self.lock = RLock()
+
+    def add(self, url, reason):
+        with self.lock:
+            with open(self.file, "a") as f:
+                f.write(f"{url},{reason}\n")
+            print(f"💀 Added to dead letter queue: {url} — {reason}")
+
+    def load(self):
+        if not os.path.exists(self.file):
+            return []
+        with open(self.file) as f:
+            return [line.split(",")[0] for line in f.readlines()]
 
 class PropertyParser:
     def __init__(self):
@@ -247,6 +263,7 @@ class PropertyScraper:
             
             if data:
                 with self.lock:
+                    
                     self.results.append(data)
                     with open(self.output_file, "a", newline="", encoding="utf-8") as f:
                         writer = csv.DictWriter(f, fieldnames=ALL_COLS)

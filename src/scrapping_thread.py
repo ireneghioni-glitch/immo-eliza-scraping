@@ -43,7 +43,7 @@ class SearchUrls(Thread):
                 with lock:                                        
                         for link in links:
                             href = link["href"]
-                            if href not in self.all_urls and href.split('/')[5] not in ban_types:
+                            if href not in self.all_urls and href.split('/')[5] not in ban_types and href.split('/')[4] is not "projectdetail" :
                                 self.all_urls.add(href)
 
                 print(f"Page {page_num} — collected {len(links)} URLs — Total: {len(self.all_urls)}")

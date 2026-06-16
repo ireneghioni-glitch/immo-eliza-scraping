@@ -43,7 +43,7 @@ class SearchUrls(Thread):
                 with lock:                                        
                         for link in links:
                             href = link["href"]
-                            if href not in self.all_urls and href.split('/')[5] not in ban_types and href.split('/')[4] is not "projectdetail" :
+                            if href not in self.all_urls and href.split('/')[5] not in ban_types and href.split('/')[4] != "projectdetail" :
                                 self.all_urls.add(href)
 
                 print(f"Page {page_num} — collected {len(links)} URLs — Total: {len(self.all_urls)}")
@@ -72,7 +72,6 @@ def build_urls():
                 url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&noindex=1&page={{page_num}}"
             urls.append(url)
 
-    print(f"Total URL combinations: {len(urls)}") 
     return urls
 
 def run_scraper(max_concurrent=50):         

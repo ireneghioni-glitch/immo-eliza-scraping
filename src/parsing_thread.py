@@ -11,6 +11,7 @@ import time
 import os
 from curl_cffi import requests as cffi_requests
 from fake_useragent import UserAgent
+import logging
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -44,6 +45,13 @@ ALL_COLS = [
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    filename="scraping_errors.log",
+    level=logging.ERROR,
+    format="%(asctime)s — %(levelname)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
 class Converters:
     @staticmethod
@@ -137,25 +145,43 @@ class PropertyParser:
             "Referer": "https://immovlan.be/",
         })
 
-    def _get_with_retry(self, url, retries=3):          
+    def _get_with_retry(self, url, retries=5):
         for attempt in range(retries):
-            r = self.session.get(url)
+            try:
+                r = self.session.get(url)
 
-            if r.status_code == 429:
-                wait = (attempt + 1) * random.uniform(5, 10)
-                print(f" Rate limited — waiting {wait:.1f}s ({attempt+1}/{retries}): {url}")
-                time.sleep(wait)
-                continue
+                if r.status_code == 404:
+                    logger.error(f"404 Not Found — skipping permanently: {url}")
+                    return None  # no retry
 
-            if r.status_code != 200 or len(r.text) < 1000:
-                print(f" Bad response {r.status_code} — retry {attempt+1}/{retries}: {url}")
+                if r.status_code == 503:
+                    wait = (attempt + 1) * random.uniform(5, 10)
+                    logger.error(f"503 Service Unavailable — retry {attempt+1}/{retries} after {wait:.1f}s: {url}")
+                    time.sleep(wait)
+                    continue
+
+                if r.status_code == 429:
+                    wait = (attempt + 1) * random.uniform(5, 10)
+                    logger.error(f"429 Rate Limited — retry {attempt+1}/{retries} after {wait:.1f}s: {url}")
+                    print(f" Rate limited — waiting {wait:.1f}s ({attempt+1}/{retries}): {url}")
+                    time.sleep(wait)
+                    continue
+
+                if r.status_code != 200 or len(r.text) < 1000:
+                    logger.error(f"Bad response {r.status_code} — retry {attempt+1}/{retries}: {url}")
+                    print(f" Bad response {r.status_code} — retry {attempt+1}/{retries}: {url}")
+                    time.sleep(random.uniform(2, 5))
+                    continue
+
+                return r
+
+            except Exception as e:
+                logger.error(f"Request exception attempt {attempt+1}/{retries}: {url} — {e}")
                 time.sleep(random.uniform(2, 5))
-                continue
 
-            return r 
-
-        print(f" Giving up after {retries} retries: {url}")
-        return None
+            logger.error(f"Giving up after {retries} retries: {url}")
+            print(f"🚫 Giving up after {retries} retries: {url}")
+            return None
 
     def parse(self, url):
         url = url.replace("/fr/", "/en/").replace("/nl/", "/en/")
@@ -250,6 +276,7 @@ class PropertyScraper:
         self.results      = []
         self.lock         = RLock()
         self._init_csv()
+        self.dlq = DeadLetterQueue()
 
     def _init_csv(self):
         with open(self.output_file, "w", newline="", encoding="utf-8") as f:
@@ -261,15 +288,20 @@ class PropertyScraper:
             parser = PropertyParser()
             data = parser.parse(url)
             
-            if data:
-                with self.lock:
-                    
-                    self.results.append(data)
-                    with open(self.output_file, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.DictWriter(f, fieldnames=ALL_COLS)
-                        writer.writerow(data)
-                    print(f"✓ {url}")
+            if data is None:
+                logger.error(f"No data parsed — added to DLQ: {url}")
+                self.dlq.add(url, "no_data")  # ← add this
+                return
+            with self.lock:
+                self.results.append(data)
+                with open(self.output_file, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=ALL_COLS)
+                    writer.writerow(data)
+                print(f"✓ {url}")
+        
         except Exception as e:
+            logger.error(f"Pipeline error: {url} — {e}")
+            self.dlq.add(url, str(e))
             print(f"✗ Failed {url}: {e}")
 
     def run(self, urls):

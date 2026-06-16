@@ -151,8 +151,8 @@ class PropertyParser:
             "bedrooms":         Converters.to_int(property_block.get("numberOfRooms")),
             "bathrooms":        Converters.to_int(property_block.get("numberOfBathroomsTotal")),
             "address":          property_block.get("address", {}).get("streetAddress"),
-            "postal_code":      Converters.to_int(property_block.get("address", {}).get("postalCode")),
-            "city":             property_block.get("address", {}).get("addressLocality"),
+            "postal_code":      Converters.to_int(url.split("/")[7]),
+            "city":             url.split("/")[8],
             "building_year":    Converters.to_int(property_block.get("yearBuilt")),
         }
 
@@ -170,14 +170,25 @@ class PropertyParser:
                         data[col] = Converters.to_int(p.text)
                     else:
                         data[col] = p.text
+                        
+        #Get the epc
+        def get_epc(soup, property_block):
+            # Méthode 1 : meta tag
+            meta = soup.find("meta", attrs={"name": "twitter:description"})
+            if meta:
+                m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', meta["content"])
+                if m:
+                    return m.group(2) if m else None
 
-        meta = soup.find("meta", attrs={"name": "twitter:description"})
-        if meta:
-            m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', meta["content"])
-            data["epc_score"] = m.group(2) if m else None
+            # Méthode 2 : description du block
+            description =  property_block.get("description", "")
+            m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', description)
+            return m.group(2) if m else None
 
+        data["epc_score"] = get_epc(soup, property_block)
         data["region"]   = Geography.get_region(data["postal_code"])
         data["province"] = Geography.get_province(data["postal_code"])
+       
 
         # fill missing columns with None
         for col in ALL_COLS:
@@ -229,5 +240,5 @@ class PropertyScraper:
 if __name__ == "__main__":
     url = run_scraper(50)
 
-    scraper = PropertyScraper(output_file=r"C:\Users\danuk\OneDrive\Documents\properties.csv", max_concurrent=50)
+    scraper = PropertyScraper(output_file=r"data\raw\properties.csv", max_concurrent=50)
     results = scraper.run(list(url))

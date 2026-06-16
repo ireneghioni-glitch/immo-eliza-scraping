@@ -28,7 +28,7 @@ class SearchUrls(Thread):
             self.search_url(self.url)
 
     def search_url(self, url):
-        for page_num in range(1, 21):
+        for page_num in range(1, 2):
             try:
                 base_url = url.format(page_num=page_num)
                 response = self.session.get(base_url)

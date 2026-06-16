@@ -4,6 +4,7 @@ import json
 import re
 from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 from scrapping_thread import run_scraper
 import random
@@ -283,31 +284,42 @@ class PropertyScraper:
             writer = csv.DictWriter(f, fieldnames=ALL_COLS)
             writer.writeheader()
 
-    def _process_url(self, url):
+    def _process_url(self, url, index=None):  # ← add index parameter
         try:
             parser = PropertyParser()
             data = parser.parse(url)
-            
+
             if data is None:
                 logger.error(f"No data parsed — added to DLQ: {url}")
-                self.dlq.add(url, "no_data")  # ← add this
+                self.dlq.add(url, "no_data")
                 return
+
             with self.lock:
                 self.results.append(data)
                 with open(self.output_file, "a", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=ALL_COLS)
                     writer.writerow(data)
-                print(f"✓ {url}")
-        
+                print(f"✓ [{index}] {url}")  # ← shows index in output
+
         except Exception as e:
             logger.error(f"Pipeline error: {url} — {e}")
             self.dlq.add(url, str(e))
-            print(f"✗ Failed {url}: {e}")
+            print(f"✗ Failed [{index}] {url}: {e}")
 
     def run(self, urls):
+        urls = list(urls)  # ← ensures stable index order
         print(f"Scraping {len(urls)} properties with {self.max_concurrent} threads...")
+
         with ThreadPoolExecutor(max_workers=self.max_concurrent) as executor:
-            executor.map(self._process_url, urls)
+            futures = {executor.submit(self._process_url, url, i): i for i, url in enumerate(urls)}
+
+            for future in as_completed(futures):
+                index = futures[future]  # ← original index of this URL
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Pipeline error at index {index}: {urls[index]} — {e}")
+
         print(f"\nDone — {len(self.results)} properties scraped → {self.output_file}")
         return self.results
 

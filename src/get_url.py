@@ -10,7 +10,6 @@ def get_urls(max_pages=25, target= 10000):
 
  all_urls = []  # master list to track  URLs and avoid duplicates
 
-
 # map each main property type to its subtypes for search combinations    
 
  property_types = {

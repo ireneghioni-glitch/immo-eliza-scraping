@@ -7,6 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 import csv
 from scrapping_thread import run_scraper
 import random
+import time
+import os
 
 # ── Constants ────────────────────────────────────────────────────────────────
 USER_AGENTS = [
@@ -131,10 +133,37 @@ class PropertyParser:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
 
+    def _get_with_retry(self, url, retries=3):          
+        for attempt in range(retries):
+            r = self.session.get(url)
+
+            if r.status_code == 429:
+                wait = (attempt + 1) * random.uniform(5, 10)
+                print(f" Rate limited — waiting {wait:.1f}s ({attempt+1}/{retries}): {url}")
+                time.sleep(wait)
+                continue
+
+            if r.status_code != 200 or len(r.text) < 1000:
+                print(f" Bad response {r.status_code} — retry {attempt+1}/{retries}: {url}")
+                time.sleep(random.uniform(2, 5))
+                continue
+
+            if "captcha" in r.text.lower() or "blocked" in r.text.lower():
+                print(f" Block detected — retry {attempt+1}/{retries}: {url}")
+                time.sleep(random.uniform(5, 10))
+                continue
+
+            return r 
+
+        print(f" Giving up after {retries} retries: {url}")
+        return None
+
     def parse(self, url):
         url = url.replace("/fr/", "/en/").replace("/nl/", "/en/")
 
-        r = self.session.get(url)
+        r = self._get_with_retry(url,5)
+        if r is None:
+            return None
         soup = BeautifulSoup(r.text, "lxml")
 
         # JSON-LD blocks
@@ -252,5 +281,6 @@ class PropertyScraper:
 if __name__ == "__main__":
     url = run_scraper(50)
 
-    scraper = PropertyScraper(output_file=r"data\raw\properties.csv", max_concurrent=50)
+    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.csv")
+    scraper = PropertyScraper(output_file=output_path, max_concurrent=50)
     results = scraper.run(list(url))

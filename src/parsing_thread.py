@@ -2,12 +2,10 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import re   
-import threading
 from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
-import time 
 from random import randint
 from scrapping_thread import run_scraper
 import random
@@ -48,7 +46,7 @@ ALL_COLS = [
     "latitude","longitude","building_year", "epc_score", "region", "province","nearby_city"
 ] + list(LABEL_MAP.values())
 
-# Belgian cities 
+# Belgian cities
 BELGIAN_CITIES = [
     {"city": "Antwerpen", "lat": 51.2194, "lon": 4.4025, "population": 556138, "prestigious": False},
     {"city": "Bruxelles", "lat": 50.8503, "lon": 4.3517, "population": 188737, "prestigious": False},
@@ -148,8 +146,7 @@ class Geography:
     @staticmethod
     def get_nearby_city(latitude, longitude,prestige_radius_km=5):
         """
-        Find the closest city (Belgian or major border city) with at least
-        min_population inhabitants. Uses a static, hardcoded list — no API
+        Find the closest city (Belgian or major border city) and prestigious city. Uses a static, hardcoded list — no API
         calls, no rate limits, no ban risk. Instant lookup.
         """
 

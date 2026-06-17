@@ -390,7 +390,7 @@ class PropertyScraper:
             # IRENE: integration of save_property_record method from StateManager
             self.state_manager.save_property_record(data, url)
             # with self.lock:
-            #     self.results.append(data)
+            self.results.append(data)
             #     with open(self.output_file, "a", newline="", encoding="utf-8") as f:
             #         writer = csv.DictWriter(f, fieldnames=ALL_COLS)
             #         writer.writerow(data)

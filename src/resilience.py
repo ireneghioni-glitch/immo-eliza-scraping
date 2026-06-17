@@ -86,7 +86,6 @@ class StateManager:
                 properties_dataset.write(property_info + "\n")
             with open(self.csv_file, "a") as urls_log:
                 urls_log.write(url + "\n")
-            return data
 
     def save_url_checkpoint(self, saved_index):
         with self.file_lock:

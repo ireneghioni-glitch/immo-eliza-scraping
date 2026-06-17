@@ -6,7 +6,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 all_urls = set()
 lock = RLock()
-ban_types=['investment-property','office-space','development-site','land','industrial-building','garage','parking','farmland','commercial-building','student-flat','undetermined-property','to-parcel-out-site','industrial-ground','green-zone','wood','recreational-land']
+ban_types=['investment-property','office-space','development-site','land','industrial-building'
+           ,'garage','parking','farmland','commercial-building','student-flat','undetermined-property',
+           'to-parcel-out-site','industrial-ground','green-zone','wood','recreational-land']
 
 class SearchSession:
     def __init__(self):

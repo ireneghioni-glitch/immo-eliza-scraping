@@ -1,11 +1,15 @@
 import requests
 from bs4 import BeautifulSoup
 import json
-import re
+import re   
+import threading
 from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 import csv
+import time 
+from random import randint
 from scrapping_thread import run_scraper
+from math import radians, sin, cos, sqrt, atan2
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -41,9 +45,64 @@ INT_COLS   = ["facades", "parking_count", "floors_total"]
 ALL_COLS = [
     "property_id", "property_type", "property_subtype", "price", "price_type",
     "living_area_m2", "bedrooms", "bathrooms", "address", "postal_code", "city",
-    "latitude","longitude","building_year", "epc_score", "region", "province",
+    "latitude","longitude","building_year", "epc_score", "region", "province","nearby_city"
 ] + list(LABEL_MAP.values())
 
+# Belgian cities 
+BELGIAN_CITIES = [
+    {"city": "Antwerpen", "lat": 51.2194, "lon": 4.4025, "population": 556138, "prestigious": False},
+    {"city": "Bruxelles", "lat": 50.8503, "lon": 4.3517, "population": 188737, "prestigious": False},
+    {"city": "Gent", "lat": 51.0543, "lon": 3.7174, "population": 265086, "prestigious": False},
+    {"city": "Charleroi", "lat": 50.4108, "lon": 4.4446, "population": 206216, "prestigious": False},
+    {"city": "Liège", "lat": 50.6326, "lon": 5.5797, "population": 201256, "prestigious": False},
+    {"city": "Bruges", "lat": 51.2093, "lon": 3.2247, "population": 119099, "prestigious": False},
+    {"city": "Namur", "lat": 50.4669, "lon": 4.8675, "population": 117453, "prestigious": False},
+    {"city": "Louvain", "lat": 50.8798, "lon": 4.7005, "population": 104487, "prestigious": False},
+    {"city": "Mons", "lat": 50.4542, "lon": 3.9523, "population": 96450, "prestigious": False},
+    {"city": "Alost", "lat": 50.9378, "lon": 4.0397, "population": 90150, "prestigious": False},
+    {"city": "Malines", "lat": 51.0259, "lon": 4.4775, "population": 90030, "prestigious": False},
+    {"city": "La Louvière", "lat": 50.4796, "lon": 4.1888, "population": 81772, "prestigious": False},
+    {"city": "Kortrijk", "lat": 50.8278, "lon": 3.2649, "population": 78878, "prestigious": False},
+    {"city": "Hasselt", "lat": 50.9307, "lon": 5.3325, "population": 80948, "prestigious": False},
+    {"city": "Sint-Niklaas", "lat": 51.1654, "lon": 4.1429, "population": 79567, "prestigious": False},
+    {"city": "Ostende", "lat": 51.2154, "lon": 2.9286, "population": 71978, "prestigious": False},
+    {"city": "Tournai", "lat": 50.6064, "lon": 3.3886, "population": 70347, "prestigious": False},
+    {"city": "Genk", "lat": 50.9656, "lon": 5.4986, "population": 66227, "prestigious": False},
+    {"city": "Roeselare", "lat": 50.9456, "lon": 3.1222, "population": 66453, "prestigious": False},
+    {"city": "Mouscron", "lat": 50.7434, "lon": 3.2128, "population": 59904, "prestigious": False},
+    {"city": "Verviers", "lat": 50.5891, "lon": 5.8631, "population": 56258, "prestigious": False},
+    {"city": "Turnhout", "lat": 51.3225, "lon": 4.9447, "population": 47700, "prestigious": False},
+    {"city": "Dendermonde", "lat": 51.0289, "lon": 4.1011, "population": 47700, "prestigious": False},
+    {"city": "Sint-Truiden", "lat": 50.8175, "lon": 5.1881, "population": 41000, "prestigious": False},
+    {"city": "Lokeren", "lat": 51.1058, "lon": 3.9925, "population": 41700, "prestigious": False},
+    {"city": "Geel", "lat": 51.1644, "lon": 4.9914, "population": 41200, "prestigious": False},
+    {"city": "Waregem", "lat": 50.8917, "lon": 3.4267, "population": 38500, "prestigious": False},
+    {"city": "Arlon", "lat": 49.6833, "lon": 5.8167, "population": 30000, "prestigious": False},
+    # Popular/Upscale Areas (smaller population but high property values)
+    {"city": "De Panne", "lat": 51.0989, "lon": 2.5928, "population": 10000, "prestigious": True},
+    {"city": "Knokke-Heist", "lat": 51.3500, "lon": 3.2833, "population": 34000, "prestigious": True},
+    {"city": "Waterloo", "lat": 50.7167, "lon": 4.4000, "population": 30000, "prestigious": True},
+    {"city": "Lasne", "lat": 50.7167, "lon": 4.4500, "population": 14000, "prestigious": True},
+    {"city": "Rhode-Saint-Genèse", "lat": 50.7500, "lon": 4.3667, "population": 18000, "prestigious": True},
+    {"city": "Tervuren", "lat": 50.8264, "lon": 4.5169, "population": 21000, "prestigious": True},
+    {"city": "Overijse", "lat": 50.7714, "lon": 4.5333, "population": 25000, "prestigious": True},
+    {"city": "Uccle", "lat": 50.8014, "lon": 4.3378, "population": 86852, "prestigious": True},
+]
+
+BORDER_CITIES = [
+    {"city": "Lille", "lat": 50.6322, "lon": 3.0573, "population": 236710, "prestigious": False},
+    {"city": "Dunkerque", "lat": 51.0344, "lon": 2.3768, "population": 86600, "prestigious": False},
+    {"city": "Reims", "lat": 49.2583, "lon": 4.0317, "population": 182460, "prestigious": False},
+    {"city": "Luxembourg", "lat": 49.6116, "lon": 6.1319, "population": 136208, "prestigious": False},
+    {"city": "Maastricht", "lat": 50.8514, "lon": 5.6910, "population": 120105, "prestigious": False},
+    {"city": "Eindhoven", "lat": 51.4416, "lon": 5.4697, "population": 238326, "prestigious": False},
+    {"city": "Breda", "lat": 51.5719, "lon": 4.7683, "population": 184716, "prestigious": False},
+    {"city": "Aachen", "lat": 50.7753, "lon": 6.0839, "population": 249070, "prestigious": False},
+    {"city": "Köln", "lat": 50.9375, "lon": 6.9603, "population": 1073096, "prestigious": False},
+]
+
+
+ALL_CITIES = BELGIAN_CITIES + BORDER_CITIES
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -77,7 +136,39 @@ class Geography:
             return "Wallonia"
         else:
             return "Flanders"
+        
+   
+    @staticmethod
+    def get_nearby_city(latitude, longitude,prestige_radius_km=5):
+        """
+        Find the closest city (Belgian or major border city) with at least
+        min_population inhabitants. Uses a static, hardcoded list — no API
+        calls, no rate limits, no ban risk. Instant lookup.
+        """
 
+        def haversine(lat1, lon1, lat2, lon2):
+            """
+            Calculate the great-circle distance (in km) between two GPS points
+            using the Haversine formula, which accounts for Earth's curvature.
+            """
+            R = 6371  # Earth's radius in km
+            la1, lo1, la2, lo2 = map(radians, [float(lat1), float(lon1), lat2, lon2])
+            a = sin((la2-la1)/2)**2 + cos(la1)*cos(la2)*sin((lo2-lo1)/2)**2
+            return round(R * 2 * atan2(sqrt(a), sqrt(1-a)), 1)
+
+        # Step 1: find the closest city overall, regardless of category
+        closest = min(ALL_CITIES, key=lambda c: haversine(latitude, longitude, c["lat"], c["lon"]))
+        distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
+
+        # Step 2: if the closest city is prestigious but too far away to be
+        # meaningful, discard it and search again among non-prestigious cities
+        if closest["prestigious"] and distance > prestige_radius_km:
+            non_prestigious = [c for c in ALL_CITIES if not c["prestigious"]]
+            closest = min(non_prestigious, key=lambda c: haversine(latitude, longitude, c["lat"], c["lon"]))
+            distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
+            
+        return closest["city"], distance, closest["prestigious"]
+    
     @staticmethod
     def get_province(postal_code):
         if postal_code is None:
@@ -158,7 +249,9 @@ class PropertyParser:
             "longitude":        geo_block.get("longitude"),
             "building_year":    Converters.to_int(property_block.get("yearBuilt")),
         }
-
+        
+        
+        #HTML parser
         for wrapper in soup.find_all("div", class_="data-row-wrapper"):
             for div in wrapper.find_all("div"):
                 h4 = div.find("h4")
@@ -176,14 +269,14 @@ class PropertyParser:
                         
         #Get the epc
         def get_epc(soup, property_block):
-            # Méthode 1 : meta tag
+            # Method 1 : meta tag
             meta = soup.find("meta", attrs={"name": "twitter:description"})
             if meta:
                 m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', meta["content"])
                 if m:
                     return m.group(2) if m else None
 
-            # Méthode 2 : description du block
+            # Method 2 : in the block's description
             description =  property_block.get("description", "")
             m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', description)
             return m.group(2) if m else None
@@ -191,6 +284,7 @@ class PropertyParser:
         data["epc_score"] = get_epc(soup, property_block)
         data["region"]   = Geography.get_region(data["postal_code"])
         data["province"] = Geography.get_province(data["postal_code"])
+        data["nearby_city"] = Geography.get_nearby_city(data["latitude"],data["longitude"])
        
 
         # fill missing columns with None

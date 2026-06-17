@@ -3,7 +3,6 @@ from bs4 import BeautifulSoup
 import json
 import re   
 from threading import RLock
-from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 from random import randint
@@ -14,8 +13,9 @@ import os
 from curl_cffi import requests as cffi_requests
 from fake_useragent import UserAgent
 import logging
-
 from math import radians, sin, cos, sqrt, atan2
+
+from resilience import StateManager  # ← import the state manager
 
 # ── Constants ────────────────────────────────────────────────────────────────
 ua = UserAgent()  
@@ -76,7 +76,6 @@ BELGIAN_CITIES = [
     {"city": "Geel", "lat": 51.1644, "lon": 4.9914, "population": 41200, "prestigious": False},
     {"city": "Waregem", "lat": 50.8917, "lon": 3.4267, "population": 38500, "prestigious": False},
     {"city": "Arlon", "lat": 49.6833, "lon": 5.8167, "population": 30000, "prestigious": False},
-    # Popular/Upscale Areas (smaller population but high property values)
     {"city": "De Panne", "lat": 51.0989, "lon": 2.5928, "population": 10000, "prestigious": True},
     {"city": "Knokke-Heist", "lat": 51.3500, "lon": 3.2833, "population": 34000, "prestigious": True},
     {"city": "Waterloo", "lat": 50.7167, "lon": 4.4000, "population": 30000, "prestigious": True},
@@ -98,7 +97,6 @@ BORDER_CITIES = [
     {"city": "Aachen", "lat": 50.7753, "lon": 6.0839, "population": 249070, "prestigious": False},
     {"city": "Köln", "lat": 50.9375, "lon": 6.9603, "population": 1073096, "prestigious": False},
 ]
-
 
 ALL_CITIES = BELGIAN_CITIES + BORDER_CITIES
 
@@ -141,38 +139,29 @@ class Geography:
             return "Wallonia"
         else:
             return "Flanders"
-        
-   
-    @staticmethod
-    def get_nearby_city(latitude, longitude,prestige_radius_km=5):
-        """
-        Find the closest city (Belgian or major border city) and prestigious city. Uses a static, hardcoded list — no API
-        calls, no rate limits, no ban risk. Instant lookup.
-        """
 
+    @staticmethod
+    def get_nearby_city(latitude, longitude, prestige_radius_km=5):
+        """
+        Find the closest city (Belgian or major border city) and prestigious city.
+        Uses a static, hardcoded list — no API calls, no rate limits, no ban risk.
+        """
         def haversine(lat1, lon1, lat2, lon2):
-            """
-            Calculate the great-circle distance (in km) between two GPS points
-            using the Haversine formula, which accounts for Earth's curvature.
-            """
-            R = 6371  # Earth's radius in km
+            R = 6371
             la1, lo1, la2, lo2 = map(radians, [float(lat1), float(lon1), lat2, lon2])
             a = sin((la2-la1)/2)**2 + cos(la1)*cos(la2)*sin((lo2-lo1)/2)**2
             return round(R * 2 * atan2(sqrt(a), sqrt(1-a)), 1)
 
-        # Step 1: find the closest city overall, regardless of category
         closest = min(ALL_CITIES, key=lambda c: haversine(latitude, longitude, c["lat"], c["lon"]))
         distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
 
-        # Step 2: if the closest city is prestigious but too far away to be
-        # meaningful, discard it and search again among non-prestigious cities
         if closest["prestigious"] and distance > prestige_radius_km:
             non_prestigious = [c for c in ALL_CITIES if not c["prestigious"]]
             closest = min(non_prestigious, key=lambda c: haversine(latitude, longitude, c["lat"], c["lon"]))
             distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
-            
+
         return closest["city"], distance, closest["prestigious"]
-    
+
     @staticmethod
     def get_province(postal_code):
         if postal_code is None:
@@ -227,7 +216,7 @@ class DeadLetterQueue:
 
 class PropertyParser:
     def __init__(self):
-        self.session = cffi_requests.Session(impersonate="chrome120")  # ← faking real Chrome TLS
+        self.session = cffi_requests.Session(impersonate="chrome120")
         self.session.headers.update({
             "User-Agent": ua.random,
             "Accept-Language": "fr-BE,fr;q=0.9,en;q=0.8",
@@ -241,7 +230,7 @@ class PropertyParser:
 
                 if r.status_code == 404:
                     logger.error(f"404 Not Found — skipping permanently: {url}")
-                    return None  # no retry
+                    return None
 
                 if r.status_code == 503:
                     wait = (attempt + 1) * random.uniform(5, 10)
@@ -275,12 +264,11 @@ class PropertyParser:
     def parse(self, url):
         url = url.replace("/fr/", "/en/").replace("/nl/", "/en/")
 
-        r = self._get_with_retry(url,5)
+        r = self._get_with_retry(url, 5)
         if r is None:
             return None
         soup = BeautifulSoup(r.text, "lxml")
 
-        # JSON-LD blocks
         blocks = {}
         for script in soup.select("script[type='application/ld+json']"):
             try:
@@ -313,9 +301,7 @@ class PropertyParser:
             "longitude":        geo_block.get("longitude"),
             "building_year":    Converters.to_int(property_block.get("yearBuilt")),
         }
-        
-        
-        #HTML parser
+
         for wrapper in soup.find_all("div", class_="data-row-wrapper"):
             for div in wrapper.find_all("div"):
                 h4 = div.find("h4")
@@ -330,28 +316,22 @@ class PropertyParser:
                         data[col] = Converters.to_int(p.text)
                     else:
                         data[col] = p.text
-                        
-        #Get the epc
+
         def get_epc(soup, property_block):
-            # Method 1 : meta tag
             meta = soup.find("meta", attrs={"name": "twitter:description"})
             if meta:
                 m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', meta["content"])
                 if m:
                     return m.group(2) if m else None
-
-            # Method 2 : in the block's description
-            description =  property_block.get("description", "")
+            description = property_block.get("description", "")
             m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', description)
             return m.group(2) if m else None
 
         data["epc_score"] = get_epc(soup, property_block)
         data["region"]   = Geography.get_region(data["postal_code"])
         data["province"] = Geography.get_province(data["postal_code"])
-        data["nearby_city"] = Geography.get_nearby_city(data["latitude"],data["longitude"])
-       
+        data["nearby_city"] = Geography.get_nearby_city(data["latitude"], data["longitude"])
 
-        # fill missing columns with None
         for col in ALL_COLS:
             if col not in data:
                 data[col] = None
@@ -362,22 +342,15 @@ class PropertyParser:
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
 class PropertyScraper:
-    # IRENE: adding state_manager argument and attribute
     def __init__(self, state_manager, output_file="properties.csv", max_concurrent=50):
-        self.output_file  = output_file
+        self.output_file    = output_file
         self.max_concurrent = max_concurrent
-        self.results      = []
-        self.lock         = RLock()
-        self._init_csv()
-        self.dlq = DeadLetterQueue()
-        self.state_manager = state_manager
+        self.results        = []
+        self.lock           = RLock()
+        self.dlq            = DeadLetterQueue()
+        self.state_manager  = state_manager  # ← StateManager instance
 
-    def _init_csv(self):
-        with open(self.output_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=ALL_COLS)
-            writer.writeheader()
-
-    def _process_url(self, url, index=None):  # ← add index parameter
+    def _process_url(self, url, index=None):
         try:
             parser = PropertyParser()
             data = parser.parse(url)
@@ -387,17 +360,11 @@ class PropertyScraper:
                 self.dlq.add(url, "no_data")
                 return
 
-            # IRENE: integration of save_property_record method from StateManager
-            self.state_manager.save_property_record(data, url)
-            # with self.lock:
+            self.state_manager.save_property_record(data, url)  # save to jsonl + csv log
             self.results.append(data)
-            #     with open(self.output_file, "a", newline="", encoding="utf-8") as f:
-            #         writer = csv.DictWriter(f, fieldnames=ALL_COLS)
-            #         writer.writerow(data)
-            print(f"✓ [{index}] {url}")  # ← shows index in output
+            print(f"✓ [{index}] {url}")
 
-            # IRENE: integration of save_url_checkpoint method from StateManager
-            self.state_manager.save_url_checkpoint(index)
+            self.state_manager.save_url_checkpoint(index)  # mark this index as done
 
         except Exception as e:
             logger.error(f"Pipeline error: {url} — {e}")
@@ -405,14 +372,15 @@ class PropertyScraper:
             print(f"✗ Failed [{index}] {url}: {e}")
 
     def run(self, urls):
-        urls = list(urls)  # ← ensures stable index order
-        print(f"Scraping {len(urls)} properties with {self.max_concurrent} threads...")
+        urls = list(urls)  # ensures stable index order
+        remaining = self.state_manager.filter_remaining(urls)  # skip already-done indices
+        print(f"Scraping {len(remaining)} properties with {self.max_concurrent} threads...")
 
         with ThreadPoolExecutor(max_workers=self.max_concurrent) as executor:
-            futures = {executor.submit(self._process_url, url, i): i for i, url in enumerate(urls)}
+            futures = {executor.submit(self._process_url, url, i): i for i, url in remaining}
 
             for future in as_completed(futures):
-                index = futures[future]  # ← original index of this URL
+                index = futures[future]
                 try:
                     future.result()
                 except Exception as e:
@@ -428,5 +396,10 @@ if __name__ == "__main__":
     url = run_scraper(50)
 
     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.csv")
-    scraper = PropertyScraper(output_file=output_path, max_concurrent=50)
+    state_manager = StateManager(
+        csv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "fetched_urls.csv"),
+        json_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoint.json"),
+        dataset_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.jsonl"),
+    )
+    scraper = PropertyScraper(state_manager=state_manager, output_file=output_path, max_concurrent=50)
     results = scraper.run(list(url))

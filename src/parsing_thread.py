@@ -271,13 +271,15 @@ class PropertyParser:
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
 class PropertyScraper:
-    def __init__(self, output_file="properties.csv", max_concurrent=50):
+    # IRENE: adding state_manager argument and attribute
+    def __init__(self, state_manager, output_file="properties.csv", max_concurrent=50):
         self.output_file  = output_file
         self.max_concurrent = max_concurrent
         self.results      = []
         self.lock         = RLock()
         self._init_csv()
         self.dlq = DeadLetterQueue()
+        self.state_manager = state_manager
 
     def _init_csv(self):
         with open(self.output_file, "w", newline="", encoding="utf-8") as f:
@@ -294,12 +296,17 @@ class PropertyScraper:
                 self.dlq.add(url, "no_data")
                 return
 
-            with self.lock:
-                self.results.append(data)
-                with open(self.output_file, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.DictWriter(f, fieldnames=ALL_COLS)
-                    writer.writerow(data)
-                print(f"✓ [{index}] {url}")  # ← shows index in output
+            # IRENE: integration of save_property_record method from StateManager
+            self.state_manager.save_property_record(data, url)
+            # with self.lock:
+            #     self.results.append(data)
+            #     with open(self.output_file, "a", newline="", encoding="utf-8") as f:
+            #         writer = csv.DictWriter(f, fieldnames=ALL_COLS)
+            #         writer.writerow(data)
+            print(f"✓ [{index}] {url}")  # ← shows index in output
+
+            # IRENE: integration of save_url_checkpoint method from StateManager
+            self.state_manager.save_url_checkpoint(index)
 
         except Exception as e:
             logger.error(f"Pipeline error: {url} — {e}")

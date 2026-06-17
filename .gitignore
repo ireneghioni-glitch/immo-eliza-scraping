@@ -5,3 +5,4 @@ properties.csv
 /src/__pycache__/
 
 parsing_thread.cpython-314.pyc
+__pycache__/

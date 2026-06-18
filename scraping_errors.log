@@ -1,0 +1,13 @@
+2026-06-18 10:41:17 — ERROR — No data parsed — added to DLQ: https://immovlan.be/en/detail/apartment/for-sale/1080/sint-jans-molenbeek/vbe02566
+2026-06-18 10:41:23 — ERROR — Pipeline error: https://immovlan.be/en/detail/residence/for-sale/4101/jemeppe/vbc51018 — [Errno 13] Permission denied: 'properties.csv'
+2026-06-18 10:41:27 — ERROR — No data parsed — added to DLQ: https://immovlan.be/en/detail/business-surface/for-sale/2340/beerse/rbw11115
+2026-06-18 10:41:30 — ERROR — Request exception attempt 1/5: https://immovlan.be/en/detail/residence/for-sale/8953/wijtschate/rbv41117 — Failed to perform, curl: (56) Connection closed abruptly. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-06-18 10:41:30 — ERROR — Request exception attempt 1/5: https://immovlan.be/en/detail/villa/for-sale/4102/ougree/vbe19523 — Failed to perform, curl: (56) Connection closed abruptly. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-06-18 10:41:32 — ERROR — No data parsed — added to DLQ: https://immovlan.be/en/detail/business-surface/for-sale/9620/zottegem/rbv54174
+2026-06-18 10:41:33 — ERROR — Giving up after 5 retries: https://immovlan.be/en/detail/villa/for-sale/4102/ougree/vbe19523
+2026-06-18 10:41:33 — ERROR — No data parsed — added to DLQ: https://immovlan.be/en/detail/villa/for-sale/4102/ougree/vbe19523
+2026-06-18 10:41:34 — ERROR — Giving up after 5 retries: https://immovlan.be/en/detail/residence/for-sale/8953/wijtschate/rbv41117
+2026-06-18 10:41:34 — ERROR — No data parsed — added to DLQ: https://immovlan.be/en/detail/residence/for-sale/8953/wijtschate/rbv41117
+2026-06-18 10:41:41 — ERROR — Request exception attempt 1/5: https://immovlan.be/en/detail/residence/for-sale/5170/lesve/vbe25010 — Failed to perform, curl: (28) Operation timed out after 30003 milliseconds with 0 out of 23099 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-06-18 10:41:45 — ERROR — Giving up after 5 retries: https://immovlan.be/en/detail/residence/for-sale/5170/lesve/vbe25010
+2026-06-18 10:41:45 — ERROR — No data parsed — added to DLQ: https://immovlan.be/en/detail/residence/for-sale/5170/lesve/vbe25010

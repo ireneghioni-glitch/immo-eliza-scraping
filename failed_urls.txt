@@ -1,0 +1,7 @@
+https://immovlan.be/en/detail/apartment/for-sale/1080/sint-jans-molenbeek/vbe02566,no_data
+https://immovlan.be/en/detail/residence/for-sale/4101/jemeppe/vbc51018,[Errno 13] Permission denied: 'properties.csv'
+https://immovlan.be/en/detail/business-surface/for-sale/2340/beerse/rbw11115,no_data
+https://immovlan.be/en/detail/business-surface/for-sale/9620/zottegem/rbv54174,no_data
+https://immovlan.be/en/detail/villa/for-sale/4102/ougree/vbe19523,no_data
+https://immovlan.be/en/detail/residence/for-sale/8953/wijtschate/rbv41117,no_data
+https://immovlan.be/en/detail/residence/for-sale/5170/lesve/vbe25010,no_data

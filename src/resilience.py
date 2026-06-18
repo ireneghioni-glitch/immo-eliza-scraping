@@ -1,3 +1,39 @@
+"""
+resilience.py
+=============
+
+Thread-safe state persistence and fault-tolerance orchestrator.
+
+This module provides the core architecture required to guarantee data integrity
+and pipeline resilience during concurrent scraping operations. By centralizing I/O
+subsystems and tracking operational progress through state checkpoints, it allows the
+entire scraping pipeline to handle crashes gracefully and eliminate redundant work.
+
+Core Features
+-------------
+* ``StateManager``      — Coordinates file handles, memory registries, and synchronization.
+* ``completed_indices``  — Memory-cached ``set`` providing O(1) lookups for skipped elements.
+* ``Atomic Checkpoints`` — Prevents corruption of tracking files via file-system atomic swaps.
+
+Concurrency model
+-----------------
+File-system mutation is explicitly I/O-bound and vulnerable to race conditions. 
+This module wraps all disk writes inside an internal ``threading.Lock()`` context.
+While worker threads fetch and parse assets concurrently, downstream state updates
+(appending to JSONL, tracking URLs in CSV, or mutating the JSON checkpoint) are 
+strictly serialized to prevent interleaved or partial writes.
+
+Fault Tolerance & Integrity
+---------------------------
+* **Crash-Resume Pipeline:** The system scans for a pre-existing checkpoint on startup. 
+    If found, it populates the index registry, enabling ``filter_remaining`` 
+    to seamlessly bypass already-processed items.
+* **Atomic Write Protocol:** To prevent corrupt state files if the pipeline or machine drops power mid-write, 
+    ``save_url_checkpoint`` dumps updates to a staging file (``.tmp``) and uses an atomic ``Path.replace()`` 
+    to overwrite the live production checkpoint.
+"""
+
+
 import json
 from pathlib import Path
 import threading

@@ -1,9 +1,0 @@
-https://immovlan.be/en/detail/business-surface/for-sale/2500/lier/rbw25502,no_data
-https://immovlan.be/en/detail/mixed-building/for-sale/6010/couillet/vbc15561,no_data
-https://immovlan.be/en/detail/farming-site/for-sale/6900/marche-en-famenne/vbd34176,no_data
-https://immovlan.be/en/detail/farming-site/for-sale/4820/dison/vbe36051,no_data
-https://immovlan.be/en/detail/apartment/for-sale/5000/namur/vbc71350,[WinError 5] Access is denied: 'C:\\Users\\danuk\\OneDrive\\bureaubc\\victor\\checkpoint.json.tmp' -> 'C:\\Users\\danuk\\OneDrive\\bureaubc\\victor\\checkpoint.json'
-https://immovlan.be/en/detail/farming-site/for-sale/6560/erquelinnes/vbd87320,no_data
-https://immovlan.be/en/detail/farming-site/for-sale/9140/temse/rbu71332,no_data
-https://immovlan.be/en/detail/business-surface/for-sale/7730/estaimpuis/vbe33359,no_data
-https://immovlan.be/en/detail/farming-site/for-sale/9660/brakel/rbv87399,no_data

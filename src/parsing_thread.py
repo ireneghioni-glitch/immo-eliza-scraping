@@ -47,6 +47,7 @@ import logging
 import html
 import pandas as pd
 from math import radians, sin, cos, sqrt, atan2
+from pathlib import Path
 
 
 
@@ -332,8 +333,8 @@ class DeadLetterQueue:
     worker threads.
     """
 
-    def __init__(self, file="failed_urls.txt"):
-        self.file = file
+    def __init__(self, file=Path):
+        self.file = Path(file)
         self.lock = RLock()
 
     def add(self, url, reason):
@@ -613,13 +614,13 @@ class PropertyScraper:
     failures are routed to a :class:`DeadLetterQueue`.
     """
 
-    def __init__(self, state_manager, max_concurrent=50):  # output_file removed: persistence via state_manager
+    def __init__(self, state_manager, failed_urls_path, max_concurrent=50):  # output_file removed: persistence via state_manager
         self.max_concurrent = max_concurrent
         self.results        = []
         self.lock           = RLock()
-        self.dlq            = DeadLetterQueue()
+        self.dlq            = DeadLetterQueue(file=failed_urls_path)
         self.state_manager  = state_manager  # ← StateManager instance
-
+        
     def _process_url(self, url, index=None):
         """Parse one URL and persist the result, or record the failure.
 

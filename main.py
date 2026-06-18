@@ -23,13 +23,15 @@ from src.scrapping_thread import run_scraper          # ← Immovlan URL discove
 from src.parsing_thread import PropertyScraper, PropertyParser  # ← Immovlan parser + dedup
 from src.url_fetch_immoscoop import UrlFetch          # ← ImmoScoop URL discovery
 from src.scrapper_immoscoop import ImmoScoopScraper   # ← ImmoScoop parser/scraper
+from codecarbon import EmissionsTracker
 from src.parsing_thread import DeadLetterQueue        # ← Immovlan parser class
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-
+    tracker = EmissionsTracker()
+    tracker.start()
     # Resolve all output paths relative to this file, independent of the current
     # working directory.
     BASE_DIR = Path(__file__).resolve().parent
@@ -91,3 +93,5 @@ if __name__ == "__main__":
     )
     immoscoop_results = immoscoop_scraper.run(immoscoop_urls)
     print(f"ImmoScoop — {len(immoscoop_results)} properties scraped")
+    emissions = tracker.stop()
+    print(f"Total emissions: {emissions} kg of CO₂")

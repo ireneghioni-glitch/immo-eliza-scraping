@@ -12,6 +12,8 @@ import os
 from curl_cffi import requests as cffi_requests
 from fake_useragent import UserAgent
 import logging
+import html
+import pandas as pd
 from math import radians, sin, cos, sqrt, atan2
 
 
@@ -42,7 +44,8 @@ INT_COLS   = ["facades", "parking_count", "floors_total"]
 ALL_COLS = [
     "property_id", "property_type", "property_subtype", "price", "price_type",
     "living_area_m2", "bedrooms", "bathrooms", "address", "postal_code", "city",
-    "latitude","longitude","building_year", "epc_score", "region", "province","nearby_city"
+    "latitude","longitude","building_year", "epc_score", "region", "province","nearby_city",
+    "km_from_nearby_city","is_nearby_city_prestigious"
 ] + list(LABEL_MAP.values())
 
 # Belgian cities
@@ -116,6 +119,10 @@ class Converters:
     @staticmethod
     def to_bool(value):
         return 1 if value == "Yes" else 0
+    
+    @staticmethod
+    def true_to_bool(value):
+        return 1 if value == True else 0
 
     @staticmethod
     def parse_float(value):
@@ -123,6 +130,12 @@ class Converters:
             return None
         nums = re.findall(r'[\d.]+', value)
         return float(nums[0]) if nums else None
+    
+    @staticmethod
+    def clean_html(text):
+        if text is None:
+            return None
+        return html.unescape(text)
 
 
 # ── Geography ─────────────────────────────────────────────────────────────────
@@ -160,6 +173,8 @@ class Geography:
             distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
 
         return closest["city"], distance, closest["prestigious"]
+    
+    
 
     @staticmethod
     def get_province(postal_code):
@@ -293,7 +308,7 @@ class PropertyParser:
             "living_area_m2":   property_block.get("floorSize", {}).get("value"),
             "bedrooms":         Converters.to_int(property_block.get("numberOfRooms")),
             "bathrooms":        Converters.to_int(property_block.get("numberOfBathroomsTotal")),
-            "address":          property_block.get("address", {}).get("streetAddress"),
+            "address":          Converters.clean_html(property_block.get("address", {}).get("streetAddress")),
             "postal_code":      Converters.to_int(url.split("/")[7]),
             "city":             url.split("/")[8],
             "latitude":         geo_block.get("latitude"),
@@ -325,11 +340,16 @@ class PropertyParser:
             description = property_block.get("description", "")
             m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', description)
             return m.group(2) if m else None
+        
+        city, distance, prestigious = Geography.get_nearby_city(data["latitude"], data["longitude"])
 
         data["epc_score"] = get_epc(soup, property_block)
         data["region"]   = Geography.get_region(data["postal_code"])
         data["province"] = Geography.get_province(data["postal_code"])
-        data["nearby_city"] = Geography.get_nearby_city(data["latitude"], data["longitude"])
+        data["nearby_city"] = city
+        data["km_from_nearby_city"]          = distance
+        data["is_nearby_city_prestigious"]   = Converters.true_to_bool(prestigious)
+       
 
         for col in ALL_COLS:
             if col not in data:
@@ -337,6 +357,37 @@ class PropertyParser:
 
         return data
 
+    def clean_duplicate(file):
+        if not os.path.exists(file):
+            print(f"Fichier introuvable : {file}")
+            return
+
+        df = pd.read_csv(file)
+        print(f"Rows before dedup: {len(df)}")
+
+        area_key = (
+            pd.to_numeric(df["living_area_m2"], errors="coerce")
+            .combine_first(pd.to_numeric(df["total_area_m2"], errors="coerce"))
+            .round(1)
+        )
+
+        price_key = pd.to_numeric(df["price"], errors="coerce").round(0)
+
+        keys = pd.DataFrame({
+            "latitude": df["latitude"],
+            "longitude": df["longitude"],
+            "area": area_key,
+            "price": price_key
+        })
+
+        is_duplicate = keys.duplicated(keep="first")
+
+        df_cleaned = df[~is_duplicate].copy().reset_index(drop=True)
+        print(f"Rows after dedup: {len(df_cleaned)}")
+        df_cleaned.to_csv("./data/cleaned/properties_cleaned.csv", index=False)
+        print(f"Done - {len(df_cleaned)} properties cleaned → ./data/cleaned/properties_cleaned.csv ")
+        
+        
 
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
@@ -403,3 +454,4 @@ class PropertyScraper:
 #     )
 #     scraper = PropertyScraper(state_manager=state_manager, output_file=output_path, max_concurrent=50)
 #     results = scraper.run(list(url))
+      PropertyParser.clean_duplicate(output_path)

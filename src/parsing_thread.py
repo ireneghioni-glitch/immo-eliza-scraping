@@ -6,7 +6,6 @@ from threading import RLock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
 from random import randint
-from scrapping_thread import run_scraper
 import random
 import time
 import os
@@ -15,7 +14,7 @@ from fake_useragent import UserAgent
 import logging
 from math import radians, sin, cos, sqrt, atan2
 
-from resilience import StateManager  # ← import the state manager
+
 
 # ── Constants ────────────────────────────────────────────────────────────────
 ua = UserAgent()  
@@ -342,13 +341,13 @@ class PropertyParser:
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
 class PropertyScraper:
-    def __init__(self, state_manager, output_file="properties.csv", max_concurrent=50):
-        self.output_file    = output_file
+    def __init__(self, state_manager, max_concurrent=50): # deleted  output_file="properties.csv"
         self.max_concurrent = max_concurrent
         self.results        = []
         self.lock           = RLock()
         self.dlq            = DeadLetterQueue()
         self.state_manager  = state_manager  # ← StateManager instance
+        # deleted self.output_file    = output_file
 
     def _process_url(self, url, index=None):
         try:
@@ -390,16 +389,17 @@ class PropertyScraper:
         return self.results
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# IRENE: I put this block in main.py
+# # ── Entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
-    url = run_scraper(50)
+# if __name__ == "__main__":
+#     url = run_scraper(50)
 
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.csv")
-    state_manager = StateManager(
-        csv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "fetched_urls.csv"),
-        json_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoint.json"),
-        dataset_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.jsonl"),
-    )
-    scraper = PropertyScraper(state_manager=state_manager, output_file=output_path, max_concurrent=50)
-    results = scraper.run(list(url))
+#     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.csv")
+#     state_manager = StateManager(
+#         csv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "fetched_urls.csv"),
+#         json_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoint.json"),
+#         dataset_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.jsonl"),
+#     )
+#     scraper = PropertyScraper(state_manager=state_manager, output_file=output_path, max_concurrent=50)
+#     results = scraper.run(list(url))

@@ -1,0 +1,4 @@
+requests
+beautifulsoup4
+curl-cffi
+fake-useragent

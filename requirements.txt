@@ -1,7 +1,4 @@
-<<<<<<< Updated upstream
-=======
 requests
 beautifulsoup4
 curl-cffi
 fake-useragent
->>>>>>> Stashed changes

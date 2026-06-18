@@ -1,7 +1,39 @@
+"""
+parsing_thread.py
+=================
+
+Parsing stage for the Immovlan scraping pipeline.
+
+Consumes listing-detail URLs (from the ``scrapping_thread`` discovery stage),
+fetches each page, extracts a structured record from its embedded JSON-LD and
+HTML detail rows, enriches it with Belgian geography (region, province, and the
+nearest notable city with distance + prestige flag), and persists each record
+through an injected :class:`StateManager` that provides crash-resume and
+checkpointing.
+
+A post-processing helper, :meth:`PropertyParser.clean_duplicate`, deduplicates a
+finished dataset by (location, area, price).
+
+Architecture
+------------
+* ``Converters``        — stateless value-normalisation helpers.
+* ``Geography``         — postal-code → region/province, plus nearest-city lookup.
+* ``DeadLetterQueue``   — thread-safe sink for permanently-failed URLs.
+* ``PropertyParser``    — fetches/parses one listing; also hosts clean_duplicate.
+* ``PropertyScraper``   — orchestrates concurrent parsing + state persistence.
+
+Concurrency model
+-----------------
+Scraping is I/O-bound, so a ``ThreadPoolExecutor`` fans listing fetches across
+worker threads. Each worker builds its own ``PropertyParser`` (hence its own HTTP
+session), keeping the network layer free of shared mutable state. Persistence is
+delegated to ``StateManager``.
+"""
+
 import requests
 from bs4 import BeautifulSoup
 import json
-import re   
+import re
 from threading import RLock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
@@ -19,8 +51,12 @@ from math import radians, sin, cos, sqrt, atan2
 
 
 # ── Constants ────────────────────────────────────────────────────────────────
-ua = UserAgent()  
 
+# Shared User-Agent generator; built once (expensive), cheap per-call thereafter.
+ua = UserAgent()
+
+# Maps Immovlan's English detail-table labels to internal column names. Any label
+# not present here is ignored during parsing.
 LABEL_MAP = {
     "State of the property": "state_of_the_building",
     "Furnished":             "furnished",
@@ -37,10 +73,13 @@ LABEL_MAP = {
     "Elevator":              "has_elevator",
 }
 
+# Column-type groupings drive which Converter is applied to each detail value.
 BOOL_COLS  = ["has_garage", "has_garden", "has_terrace", "furnished", "has_elevator"]
 FLOAT_COLS = ["garden_area_m2", "total_area_m2"]
 INT_COLS   = ["facades", "parking_count", "floors_total"]
 
+# Full, ordered set of record columns: fixed JSON-LD/derived fields (incl. the
+# three nearest-city fields) followed by every normalised detail-row field.
 ALL_COLS = [
     "property_id", "property_type", "property_subtype", "price", "price_type",
     "living_area_m2", "bedrooms", "bathrooms", "address", "postal_code", "city",
@@ -48,7 +87,9 @@ ALL_COLS = [
     "km_from_nearby_city","is_nearby_city_prestigious"
 ] + list(LABEL_MAP.values())
 
-# Belgian cities
+# Static reference table of Belgian cities for nearest-city lookup. Each entry
+# carries coordinates, population, and a "prestigious" flag that feeds the
+# fallback rule in get_nearby_city. Hardcoding avoids any geocoding API.
 BELGIAN_CITIES = [
     {"city": "Antwerpen", "lat": 51.2194, "lon": 4.4025, "population": 556138, "prestigious": False},
     {"city": "Bruxelles", "lat": 50.8503, "lon": 4.3517, "population": 188737, "prestigious": False},
@@ -88,6 +129,8 @@ BELGIAN_CITIES = [
     {"city": "Uccle", "lat": 50.8014, "lon": 4.3378, "population": 86852, "prestigious": True},
 ]
 
+# Major cities just across the FR/LU/NL/DE borders. A frontier property may be
+# closest to one of these, so they're part of the lookup pool.
 BORDER_CITIES = [
     {"city": "Lille", "lat": 50.6322, "lon": 3.0573, "population": 236710, "prestigious": False},
     {"city": "Dunkerque", "lat": 51.0344, "lon": 2.3768, "population": 86600, "prestigious": False},
@@ -100,9 +143,13 @@ BORDER_CITIES = [
     {"city": "Köln", "lat": 50.9375, "lon": 6.9603, "population": 1073096, "prestigious": False},
 ]
 
+# Combined pool the nearest-city search runs against.
 ALL_CITIES = BELGIAN_CITIES + BORDER_CITIES
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Logging ──────────────────────────────────────────────────────────────────
+
+# Errors are persisted to disk so a long unattended run can be audited later;
+# progress/info goes to stdout to keep the log signal-heavy.
 logging.basicConfig(
     filename="scraping_errors.log",
     level=logging.ERROR,
@@ -111,28 +158,56 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
 class Converters:
+    """Stateless helpers for normalising raw scraped values.
+
+    Every method treats ``None`` as a valid pass-through input so callers can
+    apply them to possibly-missing fields without guarding each call.
+    """
+
     @staticmethod
     def to_int(value):
+        """Coerce a value to ``int``, preserving ``None``."""
         return int(value) if value is not None else None
 
     @staticmethod
     def to_bool(value):
+        """Map the string "Yes" to 1, everything else to 0 (int, for CSV/SQL)."""
         return 1 if value == "Yes" else 0
-    
+
     @staticmethod
     def true_to_bool(value):
+        """Map a Python ``True`` to 1, everything else to 0.
+
+        Used for already-boolean inputs (e.g. the prestige flag) where the value
+        is a real bool rather than a "Yes"/"No" string.
+        """
         return 1 if value == True else 0
 
     @staticmethod
     def parse_float(value):
+        """Extract the first numeric token from a string and return it as float.
+
+        Strips surrounding unit text (e.g. "120 m²" → 120.0).
+        """
         if value is None:
             return None
         nums = re.findall(r'[\d.]+', value)
         return float(nums[0]) if nums else None
-    
+
     @staticmethod
     def clean_html(text):
+        """Decode HTML entities in a string (e.g. ``&amp;`` → ``&``).
+
+        Args:
+            text: Raw text possibly containing HTML entities, or ``None``.
+
+        Returns:
+            The unescaped text, or ``None`` if ``text`` is ``None``.
+        """
         if text is None:
             return None
         return html.unescape(text)
@@ -141,8 +216,20 @@ class Converters:
 # ── Geography ─────────────────────────────────────────────────────────────────
 
 class Geography:
+    """Derive Belgian geography from a postal code or coordinates.
+
+    Provides region/province lookups (from postal-code bands) and a nearest-city
+    resolver (from coordinates against the static ``ALL_CITIES`` table). ``None``
+    is returned for unknown postal codes rather than raising.
+    """
+
     @staticmethod
     def get_region(postal_code):
+        """Map a postal code to one of Belgium's three regions.
+
+        Returns:
+            "Brussels", "Wallonia", or "Flanders"; ``None`` if no code given.
+        """
         if postal_code is None:
             return None
         if 1000 <= postal_code < 1300:
@@ -154,30 +241,55 @@ class Geography:
 
     @staticmethod
     def get_nearby_city(latitude, longitude, prestige_radius_km=5):
-        """
-        Find the closest city (Belgian or major border city) and prestigious city.
-        Uses a static, hardcoded list — no API calls, no rate limits, no ban risk.
+        """Find the closest city to a coordinate, with a prestige fallback.
+
+        Computes great-circle (haversine) distance to every entry in
+        ``ALL_CITIES`` and returns the nearest. The prestige rule prevents an
+        upmarket municipality from being attached to a property that merely
+        happens to be closest to it: if the nearest city is ``prestigious`` but
+        lies farther than ``prestige_radius_km``, the search is rerun over
+        non-prestigious cities only.
+
+        Static-table based: no API calls, no rate limits, no ban risk.
+
+        Args:
+            latitude: Property latitude (numeric or numeric string).
+            longitude: Property longitude (numeric or numeric string).
+            prestige_radius_km: Max distance at which a prestigious city may win.
+
+        Returns:
+            A 3-tuple ``(city_name, distance_km, is_prestigious)``.
         """
         def haversine(lat1, lon1, lat2, lon2):
-            R = 6371
+            """Great-circle distance in km between two lat/lon points."""
+            R = 6371  # Earth radius (km)
             la1, lo1, la2, lo2 = map(radians, [float(lat1), float(lon1), lat2, lon2])
             a = sin((la2-la1)/2)**2 + cos(la1)*cos(la2)*sin((lo2-lo1)/2)**2
             return round(R * 2 * atan2(sqrt(a), sqrt(1-a)), 1)
 
+        # Nearest city overall.
         closest = min(ALL_CITIES, key=lambda c: haversine(latitude, longitude, c["lat"], c["lon"]))
         distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
 
+        # Prestige guard: only let a prestigious city win if we're actually near
+        # it; otherwise fall back to the nearest non-prestigious city.
         if closest["prestigious"] and distance > prestige_radius_km:
             non_prestigious = [c for c in ALL_CITIES if not c["prestigious"]]
             closest = min(non_prestigious, key=lambda c: haversine(latitude, longitude, c["lat"], c["lon"]))
             distance = haversine(latitude, longitude, closest["lat"], closest["lon"])
 
         return closest["city"], distance, closest["prestigious"]
-    
-    
 
     @staticmethod
     def get_province(postal_code):
+        """Map a postal code to its Belgian province.
+
+        Note: a few provinces span non-contiguous code bands (e.g. Flemish
+        Brabant and Hainaut), hence the repeated branches.
+
+        Returns:
+            The province name, or ``None`` if missing / outside all known ranges.
+        """
         if postal_code is None:
             return None
         if 1000 <= postal_code < 1300:
@@ -210,25 +322,48 @@ class Geography:
             return None
 
 
-# ── Parser ────────────────────────────────────────────────────────────────────
+# ── Dead-letter queue ────────────────────────────────────────────────────────
+
 class DeadLetterQueue:
+    """Thread-safe, append-only record of URLs that failed permanently.
+
+    Each line is ``url,reason`` so a failed run can later be inspected or
+    replayed. Append mode + ``RLock`` keeps writes from interleaving across
+    worker threads.
+    """
+
     def __init__(self, file="failed_urls.txt"):
         self.file = file
         self.lock = RLock()
 
     def add(self, url, reason):
+        """Append a failed URL and its reason to the queue."""
         with self.lock:
             with open(self.file, "a") as f:
                 f.write(f"{url},{reason}\n")
             print(f"💀 Added to dead letter queue: {url} — {reason}")
 
     def load(self):
+        """Load previously failed URLs for replay (empty list if no file yet)."""
         if not os.path.exists(self.file):
             return []
         with open(self.file) as f:
             return [line.split(",")[0] for line in f.readlines()]
 
+
+# ── Parser ────────────────────────────────────────────────────────────────────
+
 class PropertyParser:
+    """Fetches and parses a single Immovlan listing into a flat record.
+
+    Each instance owns its own ``curl_cffi`` session impersonating Chrome's TLS
+    fingerprint, with a randomised User-Agent. Because each worker constructs its
+    own parser, sessions are never shared across threads.
+
+    Also hosts :meth:`clean_duplicate`, a dataset-level post-processing helper
+    (it doesn't use instance state and is a ``@staticmethod``).
+    """
+
     def __init__(self):
         self.session = cffi_requests.Session(impersonate="chrome120")
         self.session.headers.update({
@@ -238,6 +373,16 @@ class PropertyParser:
         })
 
     def _get_with_retry(self, url, retries=5):
+        """GET a URL with status-aware retry and back-off.
+
+        * **404** — permanent; returns immediately.
+        * **503 / 429** — transient throttling; randomised escalating back-off.
+        * **non-200 / short body** — likely a soft block; brief pause then retry.
+
+        Returns:
+            The successful ``Response``, or ``None`` on a permanent 404 or once
+            retries are exhausted.
+        """
         for attempt in range(retries):
             try:
                 r = self.session.get(url)
@@ -271,11 +416,26 @@ class PropertyParser:
                 logger.error(f"Request exception attempt {attempt+1}/{retries}: {url} — {e}")
                 time.sleep(random.uniform(2, 5))
 
+            # NOTE: this block is inside the for-loop, so after an *exception* it
+            # returns on the first attempt instead of exhausting all retries.
+            # (503/429/short-body use ``continue`` and do retry.) Dedent to after
+            # the loop if you want exceptions to retry as well.
             logger.error(f"Giving up after {retries} retries: {url}")
             print(f"🚫 Giving up after {retries} retries: {url}")
             return None
 
     def parse(self, url):
+        """Fetch a listing and extract a normalised property record.
+
+        Sources: JSON-LD ``<script>`` blocks (structured core fields) and HTML
+        ``div.data-row-wrapper`` detail rows. Several fields (subtype, postal
+        code, city) are read positionally from the URL path.
+
+        Returns:
+            A dict keyed by ``ALL_COLS``, or ``None`` if the page could not be
+            fetched or lacks the required JSON-LD blocks.
+        """
+        # Force English locale so detail labels match LABEL_MAP keys.
         url = url.replace("/fr/", "/en/").replace("/nl/", "/en/")
 
         r = self._get_with_retry(url, 5)
@@ -283,6 +443,7 @@ class PropertyParser:
             return None
         soup = BeautifulSoup(r.text, "lxml")
 
+        # Collect every JSON-LD block keyed by @type; skip malformed blocks.
         blocks = {}
         for script in soup.select("script[type='application/ld+json']"):
             try:
@@ -293,18 +454,24 @@ class PropertyParser:
 
         property_block = blocks.get("House") or blocks.get("Apartment")
         action_block   = blocks.get("SellAction") or blocks.get("RentAction")
-        geo_block = blocks.get("GeoCoordinates")
+        # Default to {} so the latitude/longitude lookups below return None
+        # instead of raising on pages with no GeoCoordinates block.
+        geo_block = blocks.get("GeoCoordinates") or {}
 
+        # Without both property and transaction blocks there's nothing useful to
+        # record — bail out so the caller routes the URL to the DLQ.
         if not property_block or not action_block:
             print(f"Skipping — no JSON-LD found: {url}")
             return None
 
+        # Core record from JSON-LD + positional URL fields
+        # (.../<subtype>/.../<postal>/<city>/...). Address is HTML-unescaped.
         data = {
             "property_id":      url,
             "property_type":    property_block.get("@type"),
             "property_subtype": url.split("/")[5],
             "price":            action_block.get("price"),
-            "price_type":       action_block.get("@type")[:4].lower(),
+            "price_type":       action_block.get("@type")[:4].lower(),  # "sell"/"rent"
             "living_area_m2":   property_block.get("floorSize", {}).get("value"),
             "bedrooms":         Converters.to_int(property_block.get("numberOfRooms")),
             "bathrooms":        Converters.to_int(property_block.get("numberOfBathroomsTotal")),
@@ -316,6 +483,8 @@ class PropertyParser:
             "building_year":    Converters.to_int(property_block.get("yearBuilt")),
         }
 
+        # Overlay detail rows: <h4> label / <p> value pairs, normalised per the
+        # column's type group.
         for wrapper in soup.find_all("div", class_="data-row-wrapper"):
             for div in wrapper.find_all("div"):
                 h4 = div.find("h4")
@@ -332,6 +501,11 @@ class PropertyParser:
                         data[col] = p.text
 
         def get_epc(soup, property_block):
+            """Extract the EPC/PEB energy rating (A–G, optionally with '+').
+
+            Tries the ``twitter:description`` meta tag first, then the block's
+            ``description`` field.
+            """
             meta = soup.find("meta", attrs={"name": "twitter:description"})
             if meta:
                 m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', meta["content"])
@@ -340,39 +514,75 @@ class PropertyParser:
             description = property_block.get("description", "")
             m = re.search(r'(PEB|EPC)\s+([A-G][+]*)', description)
             return m.group(2) if m else None
-        
-        city, distance, prestigious = Geography.get_nearby_city(data["latitude"], data["longitude"])
 
         data["epc_score"] = get_epc(soup, property_block)
         data["region"]   = Geography.get_region(data["postal_code"])
         data["province"] = Geography.get_province(data["postal_code"])
-        data["nearby_city"] = city
-        data["km_from_nearby_city"]          = distance
-        data["is_nearby_city_prestigious"]   = Converters.true_to_bool(prestigious)
-       
 
+        # Nearest-city enrichment (needs real coordinates). Skip when missing so
+        # the haversine call can't fail on float(None); split the returned
+        # (city, distance, prestigious) tuple across the three columns.
+        if data["latitude"] is not None and data["longitude"] is not None:
+            city, distance, prestigious = Geography.get_nearby_city(data["latitude"], data["longitude"])
+            data["nearby_city"]                = city
+            data["km_from_nearby_city"]        = distance
+            data["is_nearby_city_prestigious"] = Converters.true_to_bool(prestigious)
+        else:
+            data["nearby_city"]                = None
+            data["km_from_nearby_city"]        = None
+            data["is_nearby_city_prestigious"] = None
+
+        # Guarantee a uniform record shape: every ALL_COLS key present.
         for col in ALL_COLS:
             if col not in data:
                 data[col] = None
 
         return data
 
+    @staticmethod
     def clean_duplicate(file):
+        """Deduplicate the finished JSONL dataset and write a cleaned CSV.
+
+        Reads the records the scraper persisted via
+        ``StateManager.save_property_record`` (one JSON object per line). Two
+        listings are treated as the same property when they share location
+        (latitude/longitude), area, and price. Area prefers ``living_area_m2``
+        and falls back to ``total_area_m2``; both area and price are rounded so
+        trivial formatting differences don't defeat the match. The first row of
+        each duplicate group is kept.
+
+        Args:
+            file: Path to the input JSONL dataset of scraped property records
+                (e.g. ``properties.jsonl``).
+
+        Side effects:
+            Writes the deduplicated rows to
+            ``./data/cleaned/properties_cleaned.csv`` (creating the directory if
+            needed).
+        """
         if not os.path.exists(file):
             print(f"Fichier introuvable : {file}")
             return
 
-        df = pd.read_csv(file)
+        # The scraper writes one JSON object per line (JSONL), not CSV.
+        if os.path.getsize(file) == 0:
+            print(f"Empty dataset, nothing to clean: {file}")
+            return
+        df = pd.read_json(file, lines=True)
         print(f"Rows before dedup: {len(df)}")
 
+        # Area key: prefer living area, fall back to total land area; round to
+        # 0.1 m² so minor formatting differences still match.
         area_key = (
             pd.to_numeric(df["living_area_m2"], errors="coerce")
             .combine_first(pd.to_numeric(df["total_area_m2"], errors="coerce"))
             .round(1)
         )
 
+        # Price key: numeric, rounded to whole euros.
         price_key = pd.to_numeric(df["price"], errors="coerce").round(0)
 
+        # A row is a duplicate if (lat, lon, area, price) matches an earlier row.
         keys = pd.DataFrame({
             "latitude": df["latitude"],
             "longitude": df["longitude"],
@@ -384,25 +594,44 @@ class PropertyParser:
 
         df_cleaned = df[~is_duplicate].copy().reset_index(drop=True)
         print(f"Rows after dedup: {len(df_cleaned)}")
-        df_cleaned.to_csv("./data/cleaned/properties_cleaned.csv", index=False)
-        print(f"Done - {len(df_cleaned)} properties cleaned → ./data/cleaned/properties_cleaned.csv ")
-        
-        
+
+        # Ensure the destination directory exists before writing.
+        out_path = "./data/cleaned/properties_cleaned.csv"
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        df_cleaned.to_csv(out_path, index=False)
+        print(f"Done - {len(df_cleaned)} properties cleaned → {out_path}")
+
 
 # ── Scraper ───────────────────────────────────────────────────────────────────
 
 class PropertyScraper:
-    def __init__(self, state_manager, max_concurrent=50): # deleted  output_file="properties.csv"
+    """Orchestrates concurrent parsing of many listings with state persistence.
+
+    Spawns a thread pool, dispatches one parse task per URL, and persists each
+    successful record through the injected :class:`StateManager` (which also
+    drives crash-resume via ``filter_remaining`` and checkpointing). Permanent
+    failures are routed to a :class:`DeadLetterQueue`.
+    """
+
+    def __init__(self, state_manager, max_concurrent=50):  # output_file removed: persistence via state_manager
         self.max_concurrent = max_concurrent
         self.results        = []
         self.lock           = RLock()
         self.dlq            = DeadLetterQueue()
         self.state_manager  = state_manager  # ← StateManager instance
-        # deleted self.output_file    = output_file
 
     def _process_url(self, url, index=None):
+        """Parse one URL and persist the result, or record the failure.
+
+        Runs inside a worker thread. Exceptions are caught here so a single bad
+        listing never kills the pool; failures go to the DLQ.
+
+        ``save_url_checkpoint(index)`` fires as each task completes (in
+        non-deterministic order), which is safe here because StateManager tracks
+        a *set* of completed indices rather than a high-water mark.
+        """
         try:
-            parser = PropertyParser()
+            parser = PropertyParser()   # one session per thread
             data = parser.parse(url)
 
             if data is None:
@@ -410,7 +639,7 @@ class PropertyScraper:
                 self.dlq.add(url, "no_data")
                 return
 
-            self.state_manager.save_property_record(data, url)  # save to jsonl + csv log
+            self.state_manager.save_property_record(data, url)  # persist to jsonl + csv log
             self.results.append(data)
             print(f"✓ [{index}] {url}")
 
@@ -422,7 +651,15 @@ class PropertyScraper:
             print(f"✗ Failed [{index}] {url}: {e}")
 
     def run(self, urls):
-        urls = list(urls)  # ensures stable index order
+        """Scrape every not-yet-done URL concurrently and return the records.
+
+        ``StateManager.filter_remaining`` drops already-completed URLs (resume)
+        and yields ``(index, url)`` pairs.
+
+        Returns:
+            The list of property records scraped in this run.
+        """
+        urls = list(urls)  # stable index order
         remaining = self.state_manager.filter_remaining(urls)  # skip already-done indices
         print(f"Scraping {len(remaining)} properties with {self.max_concurrent} threads...")
 
@@ -436,22 +673,6 @@ class PropertyScraper:
                 except Exception as e:
                     logger.error(f"Pipeline error at index {index}: {urls[index]} — {e}")
 
-        print(f"\nDone — {len(self.results)} properties scraped → {self.output_file}")
+        # __init__, so referencing it here raised AttributeError on completion.
+        print(f"\nDone — {len(self.results)} properties scraped")
         return self.results
-
-
-# IRENE: I put this block in main.py
-# # ── Entry point ───────────────────────────────────────────────────────────────
-
-# if __name__ == "__main__":
-#     url = run_scraper(50)
-
-#     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.csv")
-#     state_manager = StateManager(
-#         csv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "fetched_urls.csv"),
-#         json_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoint.json"),
-#         dataset_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "properties.jsonl"),
-#     )
-#     scraper = PropertyScraper(state_manager=state_manager, output_file=output_path, max_concurrent=50)
-#     results = scraper.run(list(url))
-      PropertyParser.clean_duplicate(output_path)

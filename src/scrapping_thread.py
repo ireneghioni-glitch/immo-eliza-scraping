@@ -47,7 +47,7 @@ lock = RLock()
 # of each candidate URL so these property kinds never enter the result set.
 ban_types=['investment-property','office-space','development-site','land','industrial-building'
            ,'garage','parking','farmland','commercial-building','student-flat','undetermined-property',
-           'to-parcel-out-site','industrial-ground','green-zone','wood','recreational-land']
+           'to-parcel-out-site','industrial-ground','green-zone','wood','recreational-land','business-surface','farming-site']
 
 
 # ── HTTP session ─────────────────────────────────────────────────────────────

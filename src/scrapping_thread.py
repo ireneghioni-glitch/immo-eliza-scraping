@@ -20,10 +20,10 @@ listing links out of each one.
 
 Concurrency model
 -----------------
-Discovery is I/O-bound, so requests are fanned out across a
-``ThreadPoolExecutor``. A shared ``set`` (``all_urls``) accumulates results and
-is guarded by a module-level ``RLock`` to keep concurrent ``add`` calls safe and
-deduplicated.
+Discovery is I/O-bound, so each search query runs on its own ``Thread``. A
+shared ``Semaphore`` caps how many queries perform network I/O at once, and a
+shared ``set`` (``all_urls``) accumulates results behind a module-level
+``RLock`` to keep concurrent ``add`` calls safe and deduplicated.
 
 Filtering
 ---------
@@ -39,7 +39,6 @@ from threading import Thread, RLock, Semaphore
 import requests
 from bs4 import BeautifulSoup
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 
 # ── Shared state ─────────────────────────────────────────────────────────────
@@ -73,12 +72,12 @@ class SearchSession:
 # ── Search worker ────────────────────────────────────────────────────────────
 
 class SearchUrls(Thread):
-    """Worker that scrapes listing URLs from one paginated search query.
+    """Worker thread that scrapes listing URLs from one paginated search query.
 
-    Subclasses ``Thread`` so it *can* be run as a standalone thread whose
-    concurrency is bounded by a semaphore (see :meth:`run`). In the current
-    ``run_scraper`` path the work is instead dispatched through a
-    ``ThreadPoolExecutor``, which calls :meth:`search_url` directly.
+    Subclasses ``Thread`` so each query runs on its own thread. Concurrency is
+    bounded by the shared ``semaphore``, which :meth:`run` acquires before doing
+    any network work — so many workers can exist while only a capped number
+    scrape at once.
     """
 
     def __init__(self, url, session, all_urls, semaphore):
@@ -100,9 +99,9 @@ class SearchUrls(Thread):
     def run(self):
         """Thread entry point: scrape under the semaphore's concurrency cap.
 
-        Only used when the worker is started as a real ``Thread``
-        (``worker.start()``). The semaphore bounds how many such workers run
-        the network section at once.
+        Invoked by ``Thread.start()``. Acquires the shared semaphore so that no
+        more than ``max_concurrent`` workers run the network section at once;
+        the permit is released automatically when the ``with`` block exits.
         """
         with self.semaphore:
             self.search_url(self.url)
@@ -118,9 +117,10 @@ class SearchUrls(Thread):
         Args:
             url: Search-results URL template containing ``{page_num}``.
         """
-        # NOTE: range(1, 2) only ever requests page 1. Widen the upper bound to
-        # paginate further once you're past testing.
-        for page_num in range(1, 2):
+        # Scrape up to 30 pages per query. The loop still breaks early (below)
+        # as soon as a page returns no listings, so narrow queries that have
+        # fewer than 30 pages of results won't fetch empty pages needlessly.
+        for page_num in range(1, 31):
             try:
                 base_url = url.format(page_num=page_num)
                 response = self.session.get(base_url)
@@ -145,6 +145,11 @@ class SearchUrls(Thread):
                                 self.all_urls.add(href)
 
                 print(f"Page {page_num} — collected {len(links)} URLs — Total: {len(self.all_urls)}")
+
+                # Be polite: a short pause between page requests spreads load and
+                # lowers the chance of tripping rate limits now that each query
+                # may fetch up to 30 pages. Tune or remove to taste.
+                time.sleep(0.5)
             except Exception as e:
                 # Per-page isolation: a single failed page is logged and skipped
                 # so the rest of the query (and other workers) keep going.
@@ -181,12 +186,10 @@ def build_urls():
     for province in provinces:
         for min_price, max_price in price_ranges:
             if max_price:
-                # WARNING: this branch's query string is malformed — the
-                # province parameter is "& =" instead of "&provinces=", so the
-                # province filter is dropped for all bounded price bands. The
-                # ``else`` branch below has the correct "&provinces=" form.
-                url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale& ={province}&minprice={min_price}&maxprice={max_price}&noindex=1&page={{page_num}}"
+                # Bounded price band: both minprice and maxprice are set.
+                url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&maxprice={max_price}&noindex=1&page={{page_num}}"
             else:
+                # Open-ended top band: only minprice is set (no upper bound).
                 url = f"https://immovlan.be/en/real-estate?transactiontypes=for-sale,in-public-sale&provinces={province}&minprice={min_price}&noindex=1&page={{page_num}}"
             urls.append(url)
 
@@ -198,29 +201,40 @@ def build_urls():
 def run_scraper(max_concurrent=50):
     """Run URL discovery across all queries and return the collected URLs.
 
+    Spawns one :class:`SearchUrls` thread per search query. All threads are
+    started immediately, but each one acquires ``semaphore`` inside its
+    :meth:`SearchUrls.run` before doing any network work — so no more than
+    ``max_concurrent`` queries hit immovlan at the same time, regardless of how
+    many query threads exist. This is what makes the semaphore the real
+    concurrency governor (rather than a thread pool's worker count).
+
     Args:
-        max_concurrent: Maximum number of worker threads / in-flight requests.
-            Also sizes the (currently unused in this path) semaphore.
+        max_concurrent: Maximum number of queries allowed to perform network
+            I/O simultaneously; also the semaphore's permit count.
 
     Returns:
         The shared ``all_urls`` set populated with every discovered detail URL.
     """
     session = SearchSession().session
+    # Permit pool: exactly ``max_concurrent`` threads may be inside the network
+    # section at once; the rest block on acquire() until a permit frees up.
     semaphore = Semaphore(max_concurrent)
     urls = build_urls()
 
-    def task(url):
-        """Scrape a single search query (runs on a pool thread)."""
-        # NOTE: this constructs a SearchUrls worker but calls search_url
-        # directly rather than start()/run(), so the Thread machinery and the
-        # ``semaphore`` are bypassed — concurrency is bounded solely by the
-        # executor's ``max_workers``. The semaphore argument is vestigial here.
-        worker = SearchUrls(url, session, all_urls, semaphore)
-        worker.search_url(url)
+    # Build one worker thread per query. There may be many more workers than
+    # permits (e.g. 99 queries vs. 50 permits) — that's fine, the semaphore
+    # throttles them down to ``max_concurrent`` active at any moment.
+    workers = [SearchUrls(url, session, all_urls, semaphore) for url in urls]
 
-    # Fan the queries out across the pool; results land in the shared set.
-    with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
-         executor.map(task, urls)
+    # start() schedules each worker's run(), which acquires the semaphore before
+    # scraping. Starting all of them up front lets the semaphore — not the order
+    # of submission — decide who runs when.
+    for worker in workers:
+        worker.start()
+
+    # Block until every worker has finished so we don't return a partial set.
+    for worker in workers:
+        worker.join()
 
     print(f"\nDone — {len(all_urls)} total URLs collected")
     return all_urls

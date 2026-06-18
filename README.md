@@ -124,8 +124,11 @@ The project is structured as a multi-sprint pipeline:
 **Terminal Output for Immoscoop**
 ![alt text](image-1.png)
 
+Also if there is broken link, the output will show that a link is broken!
 
-Also if there is broken link, the utput will show that a link is broken!
+**Carbon emission**
+![alt text](image-2.png)
+
 
 
 **📖 Data Dictionary**

@@ -1,0 +1,5 @@
+https://www.immoscoop.be/en/for-sale/tessenderlo-ham/1142882,[Errno 13] Permission denied: 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_fetched_urls.csv'
+https://www.immoscoop.be/en/for-sale/2070-zwijndrecht/1139971,[WinError 5] Access is denied: 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json.tmp' -> 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json'
+https://www.immoscoop.be/en/for-sale/2220-heist-op-den-berg/1153404,[WinError 5] Access is denied: 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json.tmp' -> 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json'
+https://www.immoscoop.be/en/for-sale/2370-arendonk/1154729,no_data
+https://www.immoscoop.be/en/for-sale/2940-stabroek/1153739,no_data

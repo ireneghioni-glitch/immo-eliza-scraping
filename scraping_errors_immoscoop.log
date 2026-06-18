@@ -1,0 +1,9 @@
+2026-06-18 10:11:04 — ERROR — Pipeline error: https://www.immoscoop.be/en/for-sale/tessenderlo-ham/1142882 — [Errno 13] Permission denied: 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_fetched_urls.csv'
+2026-06-18 10:11:09 — ERROR — Pipeline error: https://www.immoscoop.be/en/for-sale/2070-zwijndrecht/1139971 — [WinError 5] Access is denied: 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json.tmp' -> 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json'
+2026-06-18 10:11:21 — ERROR — Pipeline error: https://www.immoscoop.be/en/for-sale/2220-heist-op-den-berg/1153404 — [WinError 5] Access is denied: 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json.tmp' -> 'c:\\Users\\danuk\\OneDrive\\bureaubc\\comment\\src\\immoscoop_checkpoint.json'
+2026-06-18 10:11:35 — ERROR — Request exception attempt 1/5: https://www.immoscoop.be/en/for-sale/2370-arendonk/1154729 — Failed to perform, curl: (28) Operation timed out after 15010 milliseconds with 32762 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-06-18 10:11:39 — ERROR — Giving up after 5 retries: https://www.immoscoop.be/en/for-sale/2370-arendonk/1154729
+2026-06-18 10:11:39 — ERROR — No data parsed — added to DLQ: https://www.immoscoop.be/en/for-sale/2370-arendonk/1154729
+2026-06-18 10:11:45 — ERROR — Request exception attempt 1/5: https://www.immoscoop.be/en/for-sale/2940-stabroek/1153739 — Failed to perform, curl: (28) Operation timed out after 15004 milliseconds with 32768 bytes received. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+2026-06-18 10:11:50 — ERROR — Giving up after 5 retries: https://www.immoscoop.be/en/for-sale/2940-stabroek/1153739
+2026-06-18 10:11:50 — ERROR — No data parsed — added to DLQ: https://www.immoscoop.be/en/for-sale/2940-stabroek/1153739

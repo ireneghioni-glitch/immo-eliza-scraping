@@ -50,7 +50,7 @@ from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
-from scrapping_thread import run_scraper
+from .scrapping_thread import run_scraper
 import random
 import time
 import os

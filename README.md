@@ -15,18 +15,10 @@
 
 ## 🧠 Mission Objective
 
-The real estate company "Immo Eliza" wants to develop a machine learning model to make price predictions on real estate sales in Belgium. They hired you to help with the entire pipeline. Immovlan.be is a commonly used website for Belgian properties.
+The real estate company "Immo Eliza" has hired us to develop a machine learning model to make price predictions on real estate sales in Belgium. Immovlan.be is a commonly used website for Belgian properties.
 
-Your first task is to build a dataset that gathers information about at least 10000 properties all over Belgium. This dataset will be used later to train your prediction model.
+The first task is to build a dataset that gathers information on at least 10,000 properties all over Belgium. This dataset will be used later to train the prediction model.
 
-## 🎓 Learning Objective
-
-- Use Python to collect as much data as possible.
-- At the end of this (sub)project, you will:
-- Be able to scrape a website
-- Be able to build a dataset from scratch
-- Collaborate in a team using GitHub Projects
-- Use Git in a team setting
 
 ## ⚙️ Installation
 
@@ -67,6 +59,10 @@ immoeliza-scraping/
 ├── 📄README.md
 ├── 📄requirements.txt
 ├── 🚀main.py
+├── 📁data/
+    ├── cleaned
+    ├── Images
+    └── raw     
 ├── 📁dev/
 │   ├── parser.py
 │   └── test_scrapping
@@ -119,59 +115,105 @@ The project is structured as a multi-sprint pipeline:
 ## 📸 Visuals
 
 **Terminal Output for Immovlan**
-![alt text](image.png)
+![alt text](data/Images/image.png)
 
 **Terminal Output for Immoscoop**
-![alt text](image-1.png)
+![alt text](data/Images/image-1.png)
 
 Also if there is broken link, the output will show that a link is broken!
 
+
 **Carbon emission**
-![alt text](image-2.png)
+![alt text](data/Images/image-2.png)
 
 
 
 **📖 Data Dictionary**
-
+ 
+---
+ 
+## 🔑 Identification
+ 
 | Column | Data Type | Example | Notes |
-|--------|-----------|---------|-------|
-| **IDENTIFICATION** |
-| property_id | str | https://immovlan.be/en | URL unique — primary key |
-| property_type | str | apartment | house / apartment |
-| property_sub_type | str | villa | villa / bungalow / … |
-| **PRICE** |
-| price | float | 325000.0 | In euros, None if not available |
-| price_type | str | sale | sale / rent |
-| **LOCATION** |
-| address | str | Rue Branche Planchard 45 4430 Ans | Full address |
-| postal_code | int | 1000 | Belgian postal code |
-| city | str | Brussels | City name |
-| region | str | Wallonia | Flanders / Wallonia / Brussels |
-| province | str | Hainaut | Derived from postal code |
-| **SURFACE & STRUCTURE** |
-| living_area_m2 | float | 85.0 | Livable area in m² |
-| total_area_m2 | float | 120.0 | Total land area in m² |
-| bedrooms | int | 2 | Number of bedrooms |
-| bathrooms | int | 1 | Number of bathrooms |
-| floors_total | int | 10 | Total number of floors (building) |
-| floor_number | int | 3 | Apartment floor number |
-| facades | int | 2 | Number of facades |
-| **EXTERIOR & FEATURES** |
-| building_year | int | 1995 | Year of construction |
-| state_of_the_building | str | normal | State of the building |
-| has_garden | int | 1 / 0 | 1 = True / 0 = False |
-| garden_area_m2 | float | 50.0 | None if has_garden = 0 |
-| has_terrace | int | 1 / 0 | 1 = True / 0 = False |
-| has_swimming_pool | int | 1 / 0 | 1 = True / 0 = False |
-| kitchen_equipped | int | 1 / 0 | 1 = True / 0 = False |
-| has_garage | int | 1 / 0 | 1 = True / 0 = False |
-| parking_count | int | 1 | Number of parking spots |
-| has_elevator | int | 1 / 0 | 1 = True / 0 = False |
-| **CONDITION & PERFORMANCE** |
-| furnished | int | 1 / 0 | 1 = True / 0 = False |
-| epc_score | str | C | EPC Certificate: A++ to G |
-
-
+|---|---|---|---|
+| `property_id` ✅ | str | `https://immovlan.be/en` | URL unique — primary key |
+| `property_type` ✅ | str | `apartment` | `house` / `apartment` |
+| `property_sub_type` ✅ | str | `villa` | villa / bungalow / … |
+ 
+---
+ 
+## 💶 Price
+ 
+| Column | Data Type | Example | Notes |
+|---|---|---|---|
+| `price` ✅ | float | `325000.0` | In euros, `None` if not available |
+| `price_type` ✅ | str | `sale` | `sale` / `rent` |
+ 
+---
+ 
+## 📍 Location
+ 
+| Column | Data Type | Example | Notes |
+|---|---|---|---|
+| `address` ✅ | str | `Rue Branche Planchard 45 4430 Ans` | Full address |
+| `postal_code` ✅ | int | `1000` | Belgian postal code |
+| `city` ✅ | str | `Brussels` | City name |
+| `region` | str | `Wallonia` | |
+| `province` | str | `Hainaut` | |
+| `latitude` | float | `51.209379` | |
+| `longitude` | float | `3.2246451` | |
+| `nearby_city` | str | `Liège` | |
+| `km_from_nearby_city` | float | `13.7` | |
+| `is_nearby_city_prestigious` | bool | `0` | |
+ 
+---
+ 
+## 🏗️ Surface & Structure
+ 
+| Column | Data Type | Example | Notes |
+|---|---|---|---|
+| `living_area_m2` | float | `85.0` | Livable area in m² |
+| `total_area_m2` | float | `120.0` | Total land area in m² |
+| `bedrooms` | int | `2` | Number of bedrooms |
+| `bathrooms` | int | `1` | Number of bathrooms |
+| `floors_total` | int | `10` | Total number of floors (building) |
+| `floor_number` | int | `3` | Apartment floor number |
+| `facades` | int | `2` | Number of facades |
+ 
+---
+ 
+## 🌿 Exterior & Amenities
+ 
+| Column | Data Type | Example | Notes |
+|---|---|---|---|
+| `building_year` | int | `1995` | Year of construction |
+| `state_of_the_building` | str | `normal` | State of the building |
+| `has_garden` | int | `1` / `0` | `1` = True / `0` = False |
+| `garden_area_m2` | float | `50.0` | `None` if `has_garden = 0` *(can drop if too slow)* |
+| `has_terrace` | int | `1` / `0` | `1` = True / `0` = False |
+| `has_swimming_pool` | int | `1` / `0` | `1` = True / `0` = False |
+| `kitchen_equipped` | int | `1` / `0` | `1` = True / `0` = False |
+| `has_garage` | int | `1` / `0` | `1` = True / `0` = False |
+| `parking_count` | int | `1` | Number of parking spots |
+| `has_elevator` | int | `1` / `0` | `1` = True / `0` = False *(apartments)* |
+ 
+---
+ 
+## 🏠 Condition & Performance
+ 
+| Column | Data Type | Example | Notes |
+|---|---|---|---|
+| `furnished` | int | `1` / `0` | `1` = True / `0` = False |
+| `epc_score` | str | `C` | EPC certificate: A++ to G |
+ 
+---
+ 
+## ✨ Nice to Have
+ 
+| Column | Data Type | Example | Notes |
+|---|---|---|---|
+| `province` | str | `Brussels` | Derived from `postal_code` |
+| `region` | str | `Brussels` | `Flanders` / `Wallonia` / `Brussels` |
 
 
 
@@ -188,7 +230,7 @@ Also if there is broken link, the output will show that a link is broken!
 
 ## 🕒 Timeline
 
-Sprint 1: Data Collection — 18/06/2026
+Sprint 1: Data Collection — 12/06/2026 - 18/06/2026 (5 Days)
 Sprint 2: Data Analysis — TBD
 Sprint 3: ML Model — TBD
 
